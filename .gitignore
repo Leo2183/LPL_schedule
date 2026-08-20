@@ -11,6 +11,11 @@ local.properties
 *.iml
 .idea/
 
+# ---- 签名 / 本地密钥（勿提交）----
+key.properties
+*.keystore
+*.jks
+
 # ---- 诊断/临时文件 ----
 build_err.log
 *.log
