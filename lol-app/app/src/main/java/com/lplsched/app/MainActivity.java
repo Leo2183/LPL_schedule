@@ -51,24 +51,29 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        // 注入状态栏高度给前端（topbar 等 sticky 元素避让状态栏）
+        // 页面加载完成时把状态栏高度注入给前端（CSS 变量 --statusbar-h），
+        // 前端 sticky 顶栏据此在沉浸式布局下避让状态栏（背景铺满、内容不前空）。
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(android.webkit.WebView view, String url) {
+                // 状态栏高度（物理像素）转为 CSS px(=dp)，避免高 DPI 下留白过大
                 int h = getStatusBarHeight();
-                String js = "document.documentElement.style.setProperty('--statusbar-h', '" + h + "px')";
+                float density = getResources().getDisplayMetrics().density;
+                int hDp = Math.round(h / density);
+                String js = "document.documentElement.style.setProperty('--statusbar-h', '" + hDp + "px')";
                 view.evaluateJavascript(js, null);
             }
         });
+        webView.setBackgroundColor(0xFF0D1017);
         setContentView(webView);
 
-        // ===== 顶部状态栏适配 =====
-        // 状态栏透明（与深色页面融为一体）；前端通过注入的 --statusbar-h 让
-        // sticky 顶栏避让状态栏，避免标题被状态栏图标遮挡/挤占。
+        // ===== 系统栏适配（沉浸式）=====
+        // WebView 全屏延伸到状态栏后，状态栏透明，前端顶栏背景自然盖住顶部，
+        // 内容通过注入的 --statusbar-h 精确避让，滚动时也不遮挡。
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-        webView.setBackgroundColor(0xFF0D1017);
+        getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
 
         // 先显示"启动中"占位，避免白屏
         showStartingNotice();

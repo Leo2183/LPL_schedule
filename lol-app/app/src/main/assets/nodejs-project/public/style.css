@@ -59,6 +59,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  /* 沉浸式：背景从屏幕最顶铺起（盖住状态栏），内容按注入的状态栏高度避让 */
   padding-top: calc(var(--statusbar-h, 0px) + 14px);
   padding-right: 28px;
   padding-bottom: 14px;
