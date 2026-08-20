@@ -1,0 +1,8 @@
+{
+  "name": "lol-schedule",
+  "version": "1.0.0",
+  "description": "LPL 赛程服务（零依赖，nodejs-mobile 运行）",
+  "main": "server.js",
+  "author": "",
+  "license": ""
+}

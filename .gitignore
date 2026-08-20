@@ -1,0 +1,22 @@
+# ---- Android / Gradle 构建产物（可再生，不入库）----
+*.apk
+*.aab
+/app/build/
+/app/.cxx/
+/.gradle/
+build/
+.gradle/
+.cxx/
+local.properties
+*.iml
+.idea/
+
+# ---- 诊断/临时文件 ----
+build_err.log
+*.log
+git
+
+# ---- 系统/编辑器 ----
+Thumbs.db
+Desktop.ini
+.DS_Store

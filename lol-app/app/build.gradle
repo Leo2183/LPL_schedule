@@ -1,0 +1,49 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.lplsched.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.lplsched.app"
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
+        ndk {
+            // 交付 ABI：arm64-v8a（现代 ARM 真机）+ x86_64（保留通用性）
+            abiFilters "arm64-v8a", "x86_64"
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    externalNativeBuild {
+        cmake {
+            path "src/main/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+    ndkVersion "21.4.7075529"
+    sourceSets {
+        main {
+            jniLibs.srcDirs 'src/main/libnode/bin/'
+        }
+    }
+}
+
+dependencies {
+}
