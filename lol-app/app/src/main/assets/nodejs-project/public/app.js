@@ -284,7 +284,7 @@ function renderDayStrip() {
     const cnt = matches.filter((m) => m.time && fmtDay(new Date(m.time)) === key).length;
     cells.push(`
       <div class="day-cell ${sameDay(d, state.date) ? "active" : ""} ${sameDay(d, new Date()) ? "today" : ""}" data-day="${key}">
-        <div class="dow">${i === 0 ? "今天" : "周" + DOW_CN[d.getDay()]}</div>
+        <div class="dow">${sameDay(d, new Date()) ? "今天" : "周" + DOW_CN[d.getDay()]}</div>
         <div class="dnum">${d.getDate()}</div>
         <div class="dcnt ${cnt ? "has" : ""}">${cnt ? cnt + "场" : "无"}</div>
       </div>`);
