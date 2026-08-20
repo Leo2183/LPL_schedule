@@ -38,6 +38,9 @@ html {
 
 html, body { height: 100%; }
 
+/* 防止个别元素(如详情页宽表格)造成整页横向溢出/整体可拖动 */
+html, body { overflow-x: hidden; }
+
 body {
   background:
     radial-gradient(1200px 500px at 80% -10%, rgba(61, 139, 255, 0.08), transparent 60%),

@@ -51,6 +51,10 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
+        // 禁用用户缩放/缩放控件，避免缩放或边缘把页面整体平移出屏
+        settings.setSupportZoom(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
         // 页面加载完成时把状态栏高度注入给前端（CSS 变量 --statusbar-h），
         // 前端 sticky 顶栏据此在沉浸式布局下避让状态栏（背景铺满、内容不前空）。
         webView.setWebViewClient(new WebViewClient() {
