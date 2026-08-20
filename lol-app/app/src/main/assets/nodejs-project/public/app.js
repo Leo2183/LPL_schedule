@@ -544,6 +544,57 @@ async function loadMatchDetail() {
   state.matchDetail = j.detail;
 }
 
+// 按 sourceId 或 id 在当前赛程里查找比赛（详情页用；未开赛的比赛也会有完整 entry）
+function findMatchById(id) {
+  const s = String(id);
+  return currentMatches().find((x) => String(x.sourceId) === s || String(x.id) === s) || null;
+}
+
+// 未来比赛占位页：不请求详情接口（避免错误码），直接展示赛程信息 + 友好提示
+function matchUpcomingHtml(m) {
+  const timeTxt = m.time ? fmtDateTimeCN(m.time) : "";
+  return `
+    <div class="detail-head">
+      <div class="detail-meta">
+        ${m.stage ? `<span>${escapeHtml(m.stage)}</span>` : ""}
+        ${m.week ? `<span>${escapeHtml(m.week)}</span>` : ""}
+        <span>${escapeHtml(m.bo || "Bo3")}</span>
+      </div>
+      <div class="detail-score">
+        <div class="detail-team">
+          ${teamLogoHtml(m.teamA)}
+          <div class="nm">${escapeHtml(m.teamA.display)}</div>
+        </div>
+        <div class="detail-vs-score">
+          <span class="detail-vs">VS</span>
+        </div>
+        <div class="detail-team">
+          ${teamLogoHtml(m.teamB)}
+          <div class="nm">${escapeHtml(m.teamB.display)}</div>
+        </div>
+      </div>
+      ${timeTxt ? `<div class="detail-bo">🕐 ${escapeHtml(timeTxt)}</div>` : ""}
+    </div>
+    <div class="empty upcoming-note">
+      <div class="big">🔜</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px;">比赛尚未开始</div>
+      <div>开赛后约 30 分钟即可查看完整对局数据<br>（选手 KDA / 伤害 / 装备 / 英雄选择等）</div>
+      <div style="margin-top:14px;"><button class="btn" onclick="window.App.refresh(true)">↻ 刷新看看</button></div>
+    </div>`;
+}
+
+// 详情加载失败（非未来比赛/数据暂未生成）占位页：不暴露错误码给用户
+function matchUnavailableHtml(m) {
+  const name = m ? `${m.teamA.display} vs ${m.teamB.display}` : "本场比赛";
+  return `
+    <div class="empty" style="padding:40px 18px;">
+      <div class="big">🤖</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:8px;">${escapeHtml(name)}</div>
+      <div style="color:var(--text-dim);margin-bottom:16px;">对局数据暂不可用，请稍后刷新重试</div>
+      <button class="btn" onclick="window.App.refresh(true)">↻ 刷新重试</button>
+    </div>`;
+}
+
 function renderMatchPage() {
   const head = `
     <div class="match-page-toolbar">
@@ -554,10 +605,16 @@ function renderMatchPage() {
     state.view = state.prevView;
     return head + `<div class="empty">没有比赛信息</div>`;
   }
+  // 未来比赛：直接渲染“未开始”占位页，不请求详情接口（避免用户看到错误码）
+  const m = findMatchById(state.matchId);
+  if (m && Number(m.status) === 1) {
+    return head + matchUpcomingHtml(m);
+  }
   if (!state.matchDetail) {
-    loadMatchDetail().then(render).catch((e) => {
+    loadMatchDetail().then(render).catch(() => {
       const main = $("#main");
-      main.innerHTML = head + `<div class="error-box">加载失败：${escapeHtml(e.message)}<br><br><button class="btn" onclick="window.App.goBack()">返回</button></div>`;
+      // 不把 e.message/错误码展示给用户，渲染友好占位页
+      main.innerHTML = head + matchUnavailableHtml(m);
     });
     return head + `<div class="loading"><div class="spinner"></div><p>正在加载比赛详情…</p></div>`;
   }
