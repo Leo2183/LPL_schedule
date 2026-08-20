@@ -13,8 +13,7 @@ android {
 
     defaultConfig {
         applicationId "com.lplsched.app"
-        // 构建产物命名：release → LPL赛程-release.apk，debug → LPL赛程-debug.apk（APK 名统一为 LPL赛程）
-        archivesName = "LPL赛程"
+        // 构建产物命名 -> 在 applicationVariants 中统一设置 outputFileName（AGP 8.x 已移除 defaultConfig.archivesName）
         minSdk 21
         targetSdk 35
         versionCode 1
@@ -47,6 +46,12 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
             signingConfig keystorePropsFile.exists() ? signingConfigs.release : null
+        }
+    }
+    // 统一 APK 产物命名：release → LPL赛程-release.apk，debug → LPL赛程-debug.apk
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            output.outputFileName = "LPL赛程-${variant.buildType.name}.apk"
         }
     }
     compileOptions {
