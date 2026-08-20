@@ -13,6 +13,8 @@ android {
 
     defaultConfig {
         applicationId "com.lplsched.app"
+        // 构建产物命名：release → LPL赛程-release.apk，debug → LPL赛程-debug.apk（APK 名统一为 LPL赛程）
+        archivesName = "LPL赛程"
         minSdk 21
         targetSdk 35
         versionCode 1

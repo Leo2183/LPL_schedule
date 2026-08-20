@@ -79,7 +79,7 @@ lol-app/
 
 | 类型 | 文件 | 说明 |
 | --- | --- | --- |
-| 正式版 | `lol-app/app/build/outputs/apk/release/LPL赛程.apk` | release 签名包，建议直接安装（约 32 MB） |
+| 正式版 | `lol-app/app/build/outputs/apk/release/LPL赛程-release.apk` | release 签名包，建议直接安装（约 32 MB） |
 | 调试版 | `lol-app/app/build/outputs/apk/debug/LPL赛程-debug.apk` | debug 包，含调试符号（约 68 MB） |
 
 > 若需要重新出包：在 `lol-app/` 下执行 `.\gradlew assembleRelease`（正式版）或 `.\gradlew assembleDebug`（调试版），产物会输出到 `app/build/outputs/apk/`。
