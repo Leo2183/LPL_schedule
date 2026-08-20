@@ -1,5 +1,5 @@
 // ============================================================
-// LOL 赛事中心 —— LPL 赛程查询
+// LPL 赛事中心 —— LPL（英雄联盟职业联赛）赛程查询
 // 零依赖 Node.js HTTP 服务：静态资源 + JSON API + 内存缓存 + 磁盘缓存
 // 启动：node server.js  (默认 http://127.0.0.1:45231)
 // ============================================================
@@ -289,7 +289,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log("");
-  console.log("  ⚡ LOL 赛事中心 —— LPL 赛程查询");
+  console.log("  ⚡ LPL 赛事中心 —— LPL 赛程查询");
   console.log(`  ➜  http://${HOST}:${PORT}`);
   console.log("");
 });

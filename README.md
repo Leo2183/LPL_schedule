@@ -1,4 +1,4 @@
-# LOL 赛事中心 · LPL 赛程 Android App
+# LPL 赛事中心 · LPL 赛程 Android App
 
 把 **LPL 赛程网页程序**（零依赖 Node.js + 原生 HTML/CSS/JS 前端）打包成 **Android APK** 的套壳方案：**nodejs-mobile（手机本地跑 Node 服务）+ WebView（渲染前端页面）**。
 
@@ -26,7 +26,7 @@
 │  ├─ 启动 Node 线程 (native-lib.cpp → node)  │
 │  │    └─ libnode.so (nodejs-mobile v18)     │
 │  └─ WebView 加载 http://127.0.0.1:45231/    │
-│       └─ LOL 前端 (HTML/CSS/JS)             │
+│       └─ LPL 前端 (HTML/CSS/JS)             │
 └─────────────────────────────────────────────┘
         │
         ▼
@@ -55,7 +55,7 @@ lol-app/
         ├── cpp/native-lib.cpp  # emutls 完整实现 + JNI 启动 Node 桥
         ├── java/com/lplsched/app/MainActivity.java
         ├── assets/nodejs-project/
-        │   ├── server.js       # LOL 本地 HTTP 服务
+        │   ├── server.js       # LPL 本地 HTTP 服务
         │   └── lib/            # 腾讯数据源封装
         │   └── public/         # 前端 (index.html / app.js / style.css)
         └── libnode/            # nodejs-mobile 预编译二进制 (arm64/x86_64 + include)
@@ -70,6 +70,19 @@ lol-app/
 - [x] 顶部状态栏沉浸式适配
 - [x] 详情页表格横向滚动 + 左侧两列固定
 - [x] 日期选择器、刷新、自动刷新
+
+---
+
+## 📦 APK 产物
+
+应用名为 **LPL赛程**，已构建的安装包：
+
+| 类型 | 文件 | 说明 |
+| --- | --- | --- |
+| 正式版 | `lol-app/app/build/outputs/apk/release/LPL赛程.apk` | release 签名包，建议直接安装（约 32 MB） |
+| 调试版 | `lol-app/app/build/outputs/apk/debug/LPL赛程-debug.apk` | debug 包，含调试符号（约 68 MB） |
+
+> 若需要重新出包：在 `lol-app/` 下执行 `.\gradlew assembleRelease`（正式版）或 `.\gradlew assembleDebug`（调试版），产物会输出到 `app/build/outputs/apk/`。
 
 ---
 
