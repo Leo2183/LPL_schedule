@@ -639,7 +639,7 @@ function matchTeamPanel(g, team, isWin) {
           }
           return `
           <tr>
-            <td class="mp-hero">${p.heroIcon ? `<img class="hero-icon mp-hero-icon" src="${escapeHtml(p.heroIcon)}" alt="" loading="lazy" data-name="${escapeHtml(p.heroName || "")}" onerror="window.__heroIconFallback(this)">` : ""}<span>${escapeHtml(p.heroName || "")}</span></td>
+            <td class="mp-hero">${p.heroIcon ? `<img class="hero-icon mp-hero-icon" src="${escapeHtml(p.heroIcon)}" alt="${escapeHtml(p.heroName || "")}" title="${escapeHtml(p.heroName || "")}" loading="lazy" data-name="${escapeHtml(p.heroName || "")}" onerror="window.__heroIconFallback(this)">` : ""}</td>
             <td class="mp-player">${escapeHtml(p.name)}</td>
             <td class="mp-kda">${p.kda ? `${p.kda.kills}/${p.kda.deaths}/${p.kda.assists}` : "-"}</td>
             <td class="mp-num">${p.kda?.attend != null ? (p.kda.attend * 100).toFixed(1) + "%" : "-"}</td>

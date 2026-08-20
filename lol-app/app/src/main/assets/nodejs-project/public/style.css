@@ -609,7 +609,7 @@ table.standings tbody tr.top3 td.rank { color: var(--accent); font-weight: 800; 
 .mp-team-stats b { color: var(--text-dim); }
 
 .mp-table-wrap { overflow-x: auto; max-width: 100%; }
-.mp-table { width: 100%; border-collapse: collapse; min-width: 780px; }
+.mp-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 780px; }
 .mp-table th {
   text-align: left; padding: 6px 8px;
   font-size: 11px; color: var(--text-faint);
@@ -622,7 +622,36 @@ table.standings tbody tr.top3 td.rank { color: var(--accent); font-weight: 800; 
   white-space: nowrap; vertical-align: middle;
 }
 .mp-table tbody tr:hover { background: var(--card-hover); }
-.mp-hero { white-space: nowrap; }
+
+/* ---- 横向滚动时固定前两列（英雄 / 选手）----
+   英雄列 sticky left:0，选手列 sticky left:英雄列宽。
+   需要不透明背景防止横滚时右方内容穿透到固定列下。 */
+.mp-table th:nth-child(1),
+.mp-table td:nth-child(1) {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 46px;
+  min-width: 46px;
+  max-width: 46px;
+  background: var(--bg);
+}
+.mp-table th:nth-child(2),
+.mp-table td:nth-child(2) {
+  position: sticky;
+  left: 46px;
+  z-index: 3;
+  background: var(--bg);
+}
+/* 表头始终盖在数据行之上 */
+.mp-table th { z-index: 5; }
+.mp-table th:nth-child(1), .mp-table th:nth-child(2) { z-index: 6; }
+/* 行 hover 时，固定列也同步高亮 */
+.mp-table tbody tr:hover td:nth-child(1),
+.mp-table tbody tr:hover td:nth-child(2) {
+  background: var(--card-hover);
+}
+.mp-hero { display: flex; align-items: center; justify-content: center; gap: 0; }
 .mp-hero-icon { width: 22px; height: 22px; border-radius: 5px; vertical-align: middle; margin-right: 4px; }
 .mp-hero span { font-size: 12px; color: var(--text-dim); vertical-align: middle; line-height: 1; }
 .mp-player { font-weight: 700; }
