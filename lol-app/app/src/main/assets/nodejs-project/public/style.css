@@ -59,7 +59,10 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 28px;
+  padding-top: calc(var(--statusbar-h, 0px) + 14px);
+  padding-right: 28px;
+  padding-bottom: 14px;
+  padding-left: 28px;
   background: rgba(18, 22, 31, 0.85);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(8px);
@@ -653,7 +656,13 @@ table.standings tbody tr.top3 td.rank { color: var(--accent); font-weight: 800; 
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 720px) {
-  .topbar { padding: 12px 16px; flex-wrap: wrap; }
+  .topbar {
+    padding-top: calc(var(--statusbar-h, 0px) + 12px);
+    padding-right: 16px;
+    padding-bottom: 12px;
+    padding-left: 16px;
+    flex-wrap: wrap;
+  }
   .main { padding: 14px 14px 30px; }
   .match-card { flex-wrap: wrap; }
   .match-main { width: 100%; }

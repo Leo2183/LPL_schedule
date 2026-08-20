@@ -2,10 +2,12 @@ package com.lplsched.app;
 
 import android.app.Activity;
 import android.content.res.AssetManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
+import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -49,8 +51,24 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        webView.setWebViewClient(new WebViewClient());
+        // 注入状态栏高度给前端（topbar 等 sticky 元素避让状态栏）
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(android.webkit.WebView view, String url) {
+                int h = getStatusBarHeight();
+                String js = "document.documentElement.style.setProperty('--statusbar-h', '" + h + "px')";
+                view.evaluateJavascript(js, null);
+            }
+        });
         setContentView(webView);
+
+        // ===== 顶部状态栏适配 =====
+        // 状态栏透明（与深色页面融为一体）；前端通过注入的 --statusbar-h 让
+        // sticky 顶栏避让状态栏，避免标题被状态栏图标遮挡/挤占。
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        webView.setBackgroundColor(0xFF0D1017);
 
         // 先显示"启动中"占位，避免白屏
         showStartingNotice();
@@ -112,6 +130,31 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (webView != null) webView.destroy();
         super.onDestroy();
+    }
+
+    /**
+     * 获取系统状态栏高度（像素）。
+     * 优先用系统 status_bar_height 资源（可靠、固定值），再以 WindowInsets 校正。
+     */
+    private int getStatusBarHeight() {
+        int h = 0;
+        // 优先：系统资源（不依赖 insets 时序，确定能取到）
+        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (resId > 0) h = getResources().getDimensionPixelSize(resId);
+        // 校正：API 30+ 以 WindowInsets 的实际值优先
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.WindowInsets insets = getWindow().getDecorView().getRootWindowInsets();
+            if (insets != null) {
+                android.graphics.Insets bars = insets.getInsetsIgnoringVisibility(
+                        android.view.WindowInsets.Type.systemBars());
+                if (bars != null && bars.top > 0) h = bars.top;
+            }
+        }
+        if (h == 0) {
+            // 极端兜底：按常规密度估算（160dpi 基准 24dp）
+            h = Math.round(24 * getResources().getDisplayMetrics().density);
+        }
+        return h;
     }
 
     // ---------------- assets 拷贝辅助 ----------------
