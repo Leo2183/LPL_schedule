@@ -14,4 +14,5 @@ add_library( native-lib SHARED
         cpp/native-lib.cpp )
 
 target_link_libraries( native-lib
-        libnode )
+        libnode
+        log )

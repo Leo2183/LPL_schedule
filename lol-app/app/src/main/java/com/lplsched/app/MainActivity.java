@@ -14,17 +14,12 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 
 /**
  * LOL 赛事 APK 壳：
  * 1) 把 assets/nodejs-project 拷贝到应用私有目录（首次）
  * 2) 在后台线程启动 Node（跑 server.js，监听 127.0.0.1:45231）
  * 3) WebView 加载 http://127.0.0.1:45231/
- *
- * 当前处于「最小化 node 测试」模式：不跑 server.js，只执行内联脚本打印版本，
- * 用于确认 libnode 能否在目标平台上创建 V8 Isolate（排查 SIGSEGV）。
  */
 public class MainActivity extends Activity {
 
@@ -71,12 +66,9 @@ public class MainActivity extends Activity {
                             deleteFolderRecursively(projectDir);
                             copyAssetFolder(getAssets(), NODE_PROJECT, projectDir.getAbsolutePath());
                         }
-                        // [最小化测试] 只打印版本，不启动 server
-                        startNodeWithArguments(new String[]{
-                                "node", "-e",
-                                "console.log('NODE_TEST_OK v' + process.version);" +
-                                "console.log(JSON.stringify(process.versions));"
-                        });
+                        // [正式模式] 启动 Node 跑 server.js（监听 127.0.0.1:45231）
+                        String serverJs = new File(projectDir, "server.js").getAbsolutePath();
+                        startNodeWithArguments(new String[]{"node", serverJs});
                     } catch (Throwable t) {
                         t.printStackTrace();
                     }
@@ -85,8 +77,16 @@ public class MainActivity extends Activity {
         }
 
         // 轮询健康接口，Node 就绪后再加载页面
+        // 注：Java 层的 HttpURLConnection 在本机（Android 16）访问 127.0.0.1 监听端口会被系统拦截超时，
+        // 故改为等待固定延时后直接 loadUrl —— WebView 的 Chromium 网络栈与 Java 网络栈不同，
+        // 实际页面加载不依赖该 health 探测。
         mainHandler = new Handler(Looper.getMainLooper());
-        pollServerAndLoad();
+        mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                webView.loadUrl(SERVER_URL);
+            }
+        }, 6000);
     }
 
     private void showStartingNotice() {
@@ -97,33 +97,6 @@ public class MainActivity extends Activity {
                 "<div>LOL 赛事中心</div><div style='margin-top:8px;font-size:13px'>正在启动本地服务…</div>" +
                 "</div></body></html>";
         webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
-    }
-
-    private void pollServerAndLoad() {
-        mainHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (isServerReady()) {
-                    webView.loadUrl(SERVER_URL);
-                } else {
-                    mainHandler.postDelayed(this, 400);
-                }
-            }
-        }, 400);
-    }
-
-    private boolean isServerReady() {
-        try {
-            URL u = new URL("http://127.0.0.1:" + SERVER_PORT + "/api/health");
-            HttpURLConnection conn = (HttpURLConnection) u.openConnection();
-            conn.setConnectTimeout(800);
-            conn.setReadTimeout(800);
-            int code = conn.getResponseCode();
-            conn.disconnect();
-            return code == 200;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     @Override
