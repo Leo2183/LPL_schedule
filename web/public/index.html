@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LPL 赛事中心 · LPL 赛程</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-logo">🏆</span>
+      <div class="brand-text">
+        <h1>LPL 赛事中心</h1>
+        <p class="brand-sub">LPL 赛程 / 比分 / 积分榜 / 选手数据</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="dataStatus" class="data-status" title="数据源状态"></span>
+      <span id="clock" class="clock"></span>
+      <button id="btnRefresh" class="btn btn-ghost" title="强制刷新数据">↻ 刷新</button>
+    </div>
+  </header>
+
+  <main id="main" class="main">
+    <div class="loading">
+      <div class="spinner"></div>
+      <p>正在加载赛程数据…</p>
+    </div>
+  </main>
+
+  <!-- 比赛详情为二级页面（见 app.js 的 match 视图），无需弹窗 -->
+
+  <div id="toast" class="toast hidden"></div>
+
+  <footer class="footer">
+    数据来源：腾讯官方赛事接口 · 仅供学习交流
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

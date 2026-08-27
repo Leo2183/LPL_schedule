@@ -1,0 +1,14 @@
+{
+  "name": "lol-schedule",
+  "version": "1.1.0",
+  "description": "LPL 赛程查询程序（腾讯官方 API）",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
