@@ -13,7 +13,9 @@ const BASE_GAMELIST = "https://apps.game.qq.com/lol/match/apis/searchMatchGameIn
 const TJSTATS_DETAIL = "https://open.tjstats.com/match-auth-app/open/v1/compound/matchDetail";
 
 const LPL_BGAME = "5"; // bGameId: 职业联赛 = LPL
-const TJSTATS_AUTH = { "Authorization": "7935be4c41d8760a28c05581a7b1f570" };
+// open.tjstats 详情接口鉴权头。以 Base64 混淆存储，避免明文一眼可见；
+// 注意：仅作"遮掩"，并非真正的加密；本项目开源，此值可被轻易逆推还原。
+const TJSTATS_AUTH = { "Authorization": Buffer.from("NzkzNWJlNGM0MWQ4NzYwYTI4YzA1NTgxYTdiMWY1NzA=", "base64").toString("utf8") };
 
 const UA = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
