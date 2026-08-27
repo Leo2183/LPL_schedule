@@ -98,4 +98,4 @@ node server.js        # 需 Node ≥ 18，零依赖
 
 - 数据由设备上 Node 请求腾讯官方赛事接口（`apps.game.qq.com` / `open.tjstats.com` / Riot DDragon 等），WebView 不跨域
 - 缓存写应用私有目录，重启不丢
-- 遵循 [nodejs-mobile](https://nodejs-mobile.github.io/) 与 [nodejs/node](https://github.com/nodejs/node) 许可
+- 本仓库软件以 [MIT](LICENSE) 许可开源；内置的 [nodejs-mobile](https://nodejs-mobile.github.io/) 与 [nodejs/node](https://github.com/nodejs/node) 遵循其各自许可
