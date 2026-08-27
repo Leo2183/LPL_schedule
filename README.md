@@ -78,6 +78,22 @@ lol-app/
 
 ---
 
+## 🌐 Web 版
+
+仓库同时包含独立的 **Web 版**（`web/`），用于在电脑浏览器运行，也可作为 Android 版前端的开发源头。
+
+```bash
+cd web
+node server.js        # 需 Node ≥ 18，零依赖
+# 浏览器访问 http://127.0.0.1:45231
+```
+
+- 与 Android 版共用同一套前端（`web/public/`）与数据源封装（`web/lib/`），功能一致（含按战队筛选、对阵图、积分榜、比赛详情等）
+- 数据由本地 Node 请求腾讯官方赛事接口
+- 发布资产：GitHub Release 中的 `LPL-schedule-web-v1.1.0.zip` 即该 Web 版源码包
+
+---
+
 ## 📜 说明
 
 - 数据由设备上 Node 请求腾讯官方赛事接口（`apps.game.qq.com` / `open.tjstats.com` / Riot DDragon 等），WebView 不跨域
