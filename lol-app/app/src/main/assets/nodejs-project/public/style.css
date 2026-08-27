@@ -146,6 +146,19 @@ body {
   font-family: inherit;
   color-scheme: dark;
 }
+/* 工具栏右侧：战队筛选下拉 + 状态筛选 chips 并排 */
+.toolbar-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.team-select {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color-scheme: dark;
+  max-width: 150px;
+}
 .filters { display: flex; gap: 8px; }
 .chip {
   padding: 5px 14px;

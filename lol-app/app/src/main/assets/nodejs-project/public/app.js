@@ -7,6 +7,7 @@ const state = {
   view: "schedule",     // schedule | bracket | standings | match(二级页面)
   date: new Date(),     // 当前选中日期（本地时间）
   filter: "all",        // all | 1(未开始) | 2(进行中) | 3(已结束)
+  teamFilter: "all",    // all | 战队显示名（按战队筛选，跨全部日期）
   lpl: { matches: [], loaded: false, error: null, seasonId: null },
   season: null,
   bracketSplit: "第三赛段", // 对阵图当前显示的赛段
@@ -233,9 +234,22 @@ function render() {
 
 function renderSchedule() {
   const matches = currentMatches();
-  const sel = fmtDay(state.date);
-  const dayMatches = matches.filter((m) => m.time && fmtDay(new Date(m.time)) === sel);
-  const filtered = dayMatches.filter((m) => state.filter === "all" || m.status === Number(state.filter));
+  const teamSel = state.teamFilter && state.teamFilter !== "all" ? state.teamFilter : "all";
+  const teamFilterOn = teamSel !== "all";
+  const teams = teamOptions();
+
+  // 筛选数据集：选中战队时跨全部日期；否则按选中日期
+  let dayMatches;   // 用于计数/展示的比赛
+  let filtered;     // 实际展示（叠加状态筛选）
+  if (teamFilterOn) {
+    const base = matches.filter((m) => (m.teamA.display === teamSel || m.teamB.display === teamSel));
+    dayMatches = base;
+    filtered = base.filter((m) => state.filter === "all" || m.status === Number(state.filter));
+  } else {
+    const sel = fmtDay(state.date);
+    dayMatches = matches.filter((m) => m.time && fmtDay(new Date(m.time)) === sel);
+    filtered = dayMatches.filter((m) => state.filter === "all" || m.status === Number(state.filter));
+  }
 
   const chips = [
     { k: "all", t: "全部" },
@@ -248,9 +262,30 @@ function renderSchedule() {
       ${c.t}<span class="cnt">${cnt}</span></button>`;
   }).join("");
 
+  const teamSelect = `
+    <select id="teamSelect" class="team-select" title="按战队筛选">
+      <option value="all" ${teamSel === "all" ? "selected" : ""}>全部战队</option>
+      ${teams.map((t) => `<option value="${escapeHtml(t.display || t.name)}" ${teamSel === (t.display || t.name) ? "selected" : ""}>${escapeHtml(t.display || t.name)}</option>`).join("")}
+    </select>`;
+
+  // 选中战队时隐藏日期导航（不再按日期浏览）
+  const dateNav = teamFilterOn ? "" : `
+    <div class="date-nav">
+      <button class="btn" data-nav="-1">‹</button>
+      <input type="date" class="date-input" id="dateInput" value="${fmtDay(state.date)}">
+      <button class="btn" data-nav="1">›</button>
+      <button class="btn" id="btnToday">今天</button>
+    </div>`;
+
   const listHtml = filtered.length
     ? `<div class="match-list">${filtered.map(matchCardHtml).join("")}</div>`
-    : `<div class="empty"><div class="big">📅</div>${dayMatches.length ? "当前筛选条件下没有比赛" : "这一天没有比赛"}</div>`;
+    : `<div class="empty"><div class="big">📅</div>${teamFilterOn ? "该战队暂无比赛" : (dayMatches.length ? "当前筛选条件下没有比赛" : "这一天没有比赛")}</div>`;
+
+  const metaText = state.lpl.seasonId
+    ? (teamFilterOn
+        ? `LPL ${escapeHtml(state.lpl.seasonId)} · 「${escapeHtml(teamSel)}」全部 ${dayMatches.length} 场比赛`
+        : `LPL ${escapeHtml(state.lpl.seasonId)} · ${fmtDateCN(state.date)} 当天 ${dayMatches.length} 场`)
+    : "";
 
   return `
     <div class="view-tabs">
@@ -259,16 +294,14 @@ function renderSchedule() {
       <button class="view-tab ${state.view === "standings" ? "active" : ""}" data-view="standings">积分榜</button>
     </div>
     <div class="toolbar">
-      <div class="date-nav">
-        <button class="btn" data-nav="-1">‹</button>
-        <input type="date" class="date-input" id="dateInput" value="${sel}">
-        <button class="btn" data-nav="1">›</button>
-        <button class="btn" id="btnToday">今天</button>
+      ${dateNav}
+      <div class="toolbar-right">
+        ${teamSelect}
+        <div class="filters">${chips}</div>
       </div>
-      <div class="filters">${chips}</div>
     </div>
-    <div class="day-strip" id="dayStrip"></div>
-    ${state.lpl.seasonId ? `<div class="match-meta" style="margin-bottom:12px;font-size:11.5px;">LPL ${escapeHtml(state.lpl.seasonId)} · ${fmtDateCN(state.date)} 当天 ${dayMatches.length} 场</div>` : ""}
+    ${teamFilterOn ? "" : `<div class="day-strip" id="dayStrip"></div>`}
+    ${metaText ? `<div class="match-meta" style="margin-bottom:12px;font-size:11.5px;">${metaText}</div>` : ""}
     ${listHtml}
   `;
 }
@@ -785,6 +818,21 @@ function currentMatches() {
   return state.lpl.matches;
 }
 
+// 收集全部赛程中出现过的战队（去重、按显示名排序），供战队筛选下拉使用。
+// 仅保留"真实战队"：LPL 队名都以末尾英文缩写结尾（BLG / 北京JDG / 深圳NIP…），
+// 过滤"骑士之路1 / 败者组决赛"等未被战队表解析出的占位名。
+function teamOptions() {
+  const seen = new Map();
+  for (const m of currentMatches()) {
+    for (const t of [m.teamA, m.teamB]) {
+      const key = t.display || t.name || "";
+      if (!key || !/[A-Za-z]{2,}$/.test(key)) continue;
+      if (!seen.has(key)) seen.set(key, t);
+    }
+  }
+  return [...seen.values()].sort((a, b) => (a.display || a.name).localeCompare(b.display || b.name, "zh-CN"));
+}
+
 function bindEvents() {
   // 全局事件委托
   const mainEl = $("#main");
@@ -844,11 +892,15 @@ function bindEvents() {
     }
   });
 
-  // 日期选择（输入框在数据加载后才渲染，用委托）
+  // 日期选择 / 战队筛选（输入框在数据加载后才渲染，用委托）
   mainEl && mainEl.addEventListener("change", (e) => {
     if (e.target && e.target.id === "dateInput" && e.target.value) {
       state.date = parseDay(e.target.value);
       didAutoJump = true;
+      render();
+    }
+    if (e.target && e.target.id === "teamSelect") {
+      state.teamFilter = e.target.value || "all";
       render();
     }
   });
