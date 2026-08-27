@@ -8,13 +8,15 @@
 
 ## ✨ 功能特性
 
-- **LPL 赛程**：三赛段赛程、按日期浏览、比赛状态（未开始/进行中/已结束）筛选
-- **对阵图**：赛季结构 / 分路 / 季后赛树状对阵
-- **积分榜**：按赛段 + 组别分组，组内按积分排序
-- **比赛二级详情页**：选手数据（KDA / 参团率 / 伤害 / 分均 / 经济 / 补刀 / 视野 / 等级 / 装备）
-- **英雄图标 / 队徽 / 装备图标**，加载失败自动回退文字徽标
-- **磁盘缓存 + 动态刷新**（有比赛时 60s 自动刷新，无比赛 1h）
-- **无 LCK、无评分**（功能边界按需求确定）
+- **LPL 赛程**：三赛段赛程、按日期浏览、比赛状态（未开始 / 进行中 / 已结束）筛选
+- **按战队筛选**：跨全部日期展示所选战队的全部比赛，可与状态筛选叠加
+- **对阵图**：赛季结构 / 分组 / 骑士之路 / 季后赛树状对阵
+- **积分榜**：按赛段 + 组别分组，组内按积分排序（积分 = 系列赛胜场 × 3），展示胜率、净胜场、近 5 场与连胜/连败
+- **比赛二级详情页**：逐局选手数据（KDA / 参团率 / 伤害 / 分均 / 经济 / 补刀 / 视野 / 等级 / 装备）
+- **英雄 / 队徽 / 装备图标**：加载失败自动回退文字徽标
+- **状态栏沉浸式适配**：顶部导航自动避让状态栏
+- **磁盘缓存 + 动态刷新**：有比赛时 60s 自动刷新，无比赛 1h
+- **功能边界**：无 LCK、无评分
 
 ---
 
@@ -63,31 +65,21 @@ lol-app/
 
 ---
 
-## ✅ 已验证（Xiaomi · Android 16 真机）
-
-- [x] Node 服务启动：赛程 232 场 / 赛季结构 3 赛段 / 积分榜，接口全部 HTTP 200
-- [x] WebView 渲染完整：赛程、对阵图、积分榜、详情页（含真实比分）
-- [x] 顶部状态栏沉浸式适配
-- [x] 详情页表格横向滚动 + 左侧两列固定
-- [x] 日期选择器、刷新、自动刷新
-
----
-
 ## 📦 APK 产物
 
-应用名为 **LPL赛程**，已构建的安装包：
+应用名为 **LPL赛程**。
 
 | 类型 | 文件 | 说明 |
 | --- | --- | --- |
 | 正式版 | `lol-app/app/build/outputs/apk/release/LPL赛程-release.apk` | release 签名包，建议直接安装（约 32 MB） |
 | 调试版 | `lol-app/app/build/outputs/apk/debug/LPL赛程-debug.apk` | debug 包，含调试符号（约 68 MB） |
 
-> 若需要重新出包：在 `lol-app/` 下执行 `.\gradlew assembleRelease`（正式版）或 `.\gradlew assembleDebug`（调试版），产物会输出到 `app/build/outputs/apk/`。
+> 重新出包：在 `lol-app/` 下执行 `.\gradlew assembleRelease`（正式版）或 `.\gradlew assembleDebug`（调试版），产物输出到 `app/build/outputs/apk/`。
 
 ---
 
 ## 📜 说明
 
-- 服务端数据全部由 device 上 Node 请求腾讯接口（`apps.game.qq.com` / `open.tjstats.com` / Riot DDragon 等），WebView 不跨域
+- 数据由设备上 Node 请求腾讯官方赛事接口（`apps.game.qq.com` / `open.tjstats.com` / Riot DDragon 等），WebView 不跨域
 - 缓存写应用私有目录，重启不丢
 - 遵循 [nodejs-mobile](https://nodejs-mobile.github.io/) 与 [nodejs/node](https://github.com/nodejs/node) 许可
