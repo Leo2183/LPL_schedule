@@ -53,7 +53,8 @@ function toISO(dateStr) {
   return new Date(iso).toISOString();
 }
 
-const BO_MAP = { "1": "Bo1", "3": "Bo3", "5": "Bo5" };
+// GameMode 值：1=Bo1、3=Bo3、5=Bo5；腾讯对季后赛(Bo5)返回 4，据实映射为 Bo5
+const BO_MAP = { "1": "Bo1", "3": "Bo3", "4": "Bo5", "5": "Bo5" };
 
 // ---- 赛季发现：返回当前/最新赛季 ----
 async function listSeasons() {
