@@ -16,8 +16,8 @@ android {
         // 构建产物命名 -> 在 applicationVariants 中统一设置 outputFileName（AGP 8.x 已移除 defaultConfig.archivesName）
         minSdk 21
         targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        versionCode 3
+        versionName "1.1.1"
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17"
