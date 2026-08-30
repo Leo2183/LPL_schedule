@@ -71,7 +71,7 @@ lol-app/
 
 | 类型 | 文件 | 说明 |
 | --- | --- | --- |
-| 正式版 | `lol-app/app/build/outputs/apk/release/LPL赛程-release.apk` | release 签名包，建议直接安装（约 32 MB） |
+| 正式版 | `lol-app/app/build/outputs/apk/release/LPL赛程-release.apk` | release 签名包（v1.1.1），建议直接安装（约 32 MB） |
 | 调试版 | `lol-app/app/build/outputs/apk/debug/LPL赛程-debug.apk` | debug 包，含调试符号（约 68 MB） |
 
 > 重新出包：在 `lol-app/` 下执行 `.\gradlew assembleRelease`（正式版）或 `.\gradlew assembleDebug`（调试版），产物输出到 `app/build/outputs/apk/`。
@@ -90,7 +90,7 @@ node server.js        # 需 Node ≥ 18，零依赖
 
 - 与 Android 版共用同一套前端（`web/public/`）与数据源封装（`web/lib/`），功能一致（含按战队筛选、对阵图、积分榜、比赛详情等）
 - 数据由本地 Node 请求腾讯官方赛事接口
-- 发布资产：GitHub Release 中的 `LPL-schedule-web-v1.1.0.zip` 即该 Web 版源码包
+- 发布资产：GitHub Release 中的 `LPL-schedule-web-v1.1.1.zip` 即该 Web 版源码包
 
 ---
 
