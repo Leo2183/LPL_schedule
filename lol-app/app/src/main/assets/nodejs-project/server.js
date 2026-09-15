@@ -109,8 +109,8 @@ const NEAR_WINDOW_AFTER = 2 * 3600 * 1000;  // 开赛前 2 小时内（即将开
 const TTL_LIVE = 60 * 1000;   // 有比赛进行/临近：60 秒刷新
 const TTL_STATIC = 60 * 60 * 1000; // 无比赛：1 小时缓存（静态数据不会变）
 
-function scheduleCacheKey(seasonId) {
-  return `lpl:schedule:${seasonId || "latest"}`;
+function scheduleCacheKey(league, seasonId) {
+  return `${league}:schedule:${seasonId || "latest"}`;
 }
 
 function scheduleTtl(key) {
@@ -126,11 +126,11 @@ function scheduleTtl(key) {
   return hasNear ? TTL_LIVE : TTL_STATIC;
 }
 
-async function lplSchedule(seasonId, force) {
-  const key = scheduleCacheKey(seasonId);
+async function lplSchedule(league, seasonId, force) {
+  const key = scheduleCacheKey(league, seasonId);
   const data = await cached(key, scheduleTtl(key), async () => {
-    const s = await lpl.getSchedule(seasonId ? { seasonId } : {});
-    return { seasonId: s.seasonId, matches: decorateLpl(s.matches) };
+    const s = await lpl.getSchedule({ league, seasonId: seasonId || undefined });
+    return { league: s.league, seasonId: s.seasonId, matches: decorateLpl(s.matches) };
   }, force);
   return data;
 }
@@ -184,29 +184,39 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true, time: new Date().toISOString() });
   }
 
-  // LPL 赛季列表
+  // 赛事列表（多赛事支持：LPL / 世界赛 / MSI / 德玛西亚杯）
+  if (pathname === "/api/leagues") {
+    const leagues = Object.entries(lpl.LEAGUES).map(([key, conf]) => ({ key, label: conf.label }));
+    return sendJson(res, 200, { ok: true, leagues });
+  }
+
+  // league 参数校验（缺省 = LPL）
+  const league = url.searchParams.get("league") || lpl.DEFAULT_LEAGUE;
+  if (!lpl.LEAGUES[league]) return sendError(res, 400, `不支持的赛事: ${league}`);
+
+  // 赛季列表
   if (pathname === "/api/lpl/seasons") {
     try {
-      const seasons = await cached("lpl:seasons", 3600 * 1000, () => lpl.listSeasons());
+      const seasons = await cached(`${league}:seasons`, 3600 * 1000, () => lpl.listSeasons(league));
       return sendJson(res, 200, { ok: true, seasons });
     } catch (e) {
-      return sendError(res, 502, `获取 LPL 赛季失败: ${e.message}`);
+      return sendError(res, 502, `获取赛季列表失败: ${e.message}`);
     }
   }
 
-  // LPL 赛程（season 省略 = 最新赛季）
+  // 赛程（season 省略 = 最新赛季）
   if (pathname === "/api/lpl/schedule") {
     try {
       const season = url.searchParams.get("season") || "";
       const force = url.searchParams.get("force") === "1";
-      const data = await lplSchedule(season, force);
+      const data = await lplSchedule(league, season, force);
       return sendJson(res, 200, { ok: true, ...data });
     } catch (e) {
-      return sendError(res, 502, `获取 LPL 赛程失败: ${e.message}`);
+      return sendError(res, 502, `获取赛程失败: ${e.message}`);
     }
   }
 
-  // LPL 比赛详情 /api/lpl/match/:id
+  // LPL 比赛详情 /api/lpl/match/:id（matchId 全赛事唯一，无需 league 参数）
   const lplMatch = pathname.match(/^\/api\/lpl\/match\/(\d+)$/);
   if (lplMatch) {
     const id = lplMatch[1];
@@ -226,12 +236,12 @@ async function handleApi(req, res, url) {
     }
   }
 
-  // LPL 赛季结构（对阵图）
+  // 赛季结构（对阵图）
   if (pathname === "/api/lpl/season") {
     try {
       const season = url.searchParams.get("season") || "";
-      const structure = await cached(`lpl:season:${season || "latest"}`, scheduleTtl(scheduleCacheKey(season)), async () => {
-        const s = await lpl.getSeasonStructure(season ? { seasonId: season } : {});
+      const structure = await cached(`${league}:season:${season || "latest"}`, scheduleTtl(scheduleCacheKey(league, season)), async () => {
+        const s = await lpl.getSeasonStructure({ league, seasonId: season || undefined });
         return decorateSeasonStructure(s);
       }, url.searchParams.get("force") === "1");
       return sendJson(res, 200, { ok: true, ...structure });
@@ -242,13 +252,11 @@ async function handleApi(req, res, url) {
 
   // 积分榜（按赛段 + 组别分组，组内按积分排序）
   if (pathname === "/api/standings") {
-    const league = url.searchParams.get("league") || "";
     const stage = url.searchParams.get("stage") || "全部";
     const season = url.searchParams.get("season") || "";
-    if (league !== "lpl") return sendError(res, 400, "仅支持 LPL 积分榜");
     try {
-      const data = await cached(`lpl:standings:${season || "latest"}:${stage}`, scheduleTtl(scheduleCacheKey(season)), async () => {
-        const groups = await lpl.getStandingsGroups(stage, season ? { seasonId: season } : {});
+      const data = await cached(`${league}:standings:${season || "latest"}:${stage}`, scheduleTtl(scheduleCacheKey(league, season)), async () => {
+        const groups = await lpl.getStandingsGroups(stage, { league, seasonId: season || undefined });
         return {
           league, stage,
           groups: groups.map((g) => ({ name: g.name, rows: g.rows.map(decorateTeamRow) })),

@@ -1,5 +1,5 @@
 // ============================================================
-// LPL 数据源：腾讯官方接口
+// 赛事数据源：腾讯官方接口（多赛事支持）
 //   1) 赛程列表  apps.game.qq.com/lol/match/apis/searchBMatchInfo_bak.php (JSONP)
 //   2) 战队列表  apps.game.qq.com/lol/match/apis/searchTeamList.php
 //   3) 赛季列表  apps.game.qq.com/lol/match/apis/searchMatchGameInfo.php
@@ -12,7 +12,14 @@ const BASE_TEAMLIST = "https://apps.game.qq.com/lol/match/apis/searchTeamList.ph
 const BASE_GAMELIST = "https://apps.game.qq.com/lol/match/apis/searchMatchGameInfo.php";
 const TJSTATS_DETAIL = "https://open.tjstats.com/match-auth-app/open/v1/compound/matchDetail";
 
-const LPL_BGAME = "5"; // bGameId: 职业联赛 = LPL
+// 赛事配置：bGameId 为腾讯接口的职业赛事编号（2026-09 实测）
+const LEAGUES = {
+  lpl: { bGame: "5", label: "LPL" },
+  worlds: { bGame: "1", label: "全球总决赛" },
+  msi: { bGame: "8", label: "季中冠军赛" },
+  demacia: { bGame: "4", label: "德玛西亚杯" },
+};
+const DEFAULT_LEAGUE = "lpl";
 // open.tjstats 详情接口鉴权头。以 Base64 混淆存储，避免明文一眼可见；
 // 注意：仅作"遮掩"，并非真正的加密；本项目开源，此值可被轻易逆推还原。
 const TJSTATS_AUTH = { "Authorization": Buffer.from("NzkzNWJlNGM0MWQ4NzYwYTI4YzA1NTgxYTdiMWY1NzA=", "base64").toString("utf8") };
@@ -56,39 +63,51 @@ function toISO(dateStr) {
 // GameMode 值：1=Bo1、3=Bo3、5=Bo5；腾讯对季后赛(Bo5)返回 4，据实映射为 Bo5
 const BO_MAP = { "1": "Bo1", "3": "Bo3", "4": "Bo5", "5": "Bo5" };
 
+// Bo 标签：赛程接口给数字（1/3/4/5），详情接口给字符串（“BO5”/“BO3”），两种都兼容
+function boLabel(mode) {
+  const s = String(mode ?? "").trim().toUpperCase();
+  const m = s.match(/^BO(\d+)$/);
+  if (m) return "Bo" + m[1];
+  if (s === "" || mode == null) return "Bo3";
+  return BO_MAP[s] || `Bo${mode}`;
+}
+
 // 非正式比赛的 stage（如“SOLO选边”选边局，Bo1 单局不计战绩），不进入赛程/积分/对阵
 const EXCLUDED_STAGE_RES = [/^SOLO选边/];
 function isExcludedStage(stage) {
   return EXCLUDED_STAGE_RES.some((re) => re.test(String(stage || "")));
 }
 
-// ---- 赛季发现：返回全部赛季（最新在前），带 1h 内存缓存 ----
-let seasonsMemo = null;
-let seasonsMemoTime = 0;
+// ---- 赛季发现：返回全部赛季（最新在前），按赛事缓存 1h ----
+const seasonsMemo = new Map(); // league -> { list, time }
 const SEASONS_TTL = 3600 * 1000;
 
-async function listSeasons() {
+async function listSeasons(league = DEFAULT_LEAGUE) {
+  const conf = LEAGUES[league];
+  if (!conf) throw new Error(`不支持的赛事: ${league}`);
   const now = Date.now();
-  if (seasonsMemo && now - seasonsMemoTime < SEASONS_TTL) return seasonsMemo;
-  const j = await getJSON(`${BASE_GAMELIST}?r1=gamelist&p1=${LPL_BGAME}`);
+  const hit = seasonsMemo.get(league);
+  if (hit && now - hit.time < SEASONS_TTL) return hit.list;
+  const j = await getJSON(`${BASE_GAMELIST}?r1=gamelist&p1=${conf.bGame}`);
   const list = (j.msg || []).filter((s) => s && s.GameId);
   // 按 GameId 数字降序，最新在前
   list.sort((a, b) => Number(b.GameId) - Number(a.GameId));
-  seasonsMemo = list.map((s) => ({ id: String(s.GameId), name: s.GameName }));
-  seasonsMemoTime = now;
-  return seasonsMemo;
+  const seasons = list.map((s) => ({ id: String(s.GameId), name: s.GameName }));
+  seasonsMemo.set(league, { list: seasons, time: now });
+  return seasons;
 }
 
-async function latestSeason() {
-  const seasons = await listSeasons();
-  if (!seasons.length) throw new Error("未找到 LPL 赛季");
+async function latestSeason(league = DEFAULT_LEAGUE) {
+  const seasons = await listSeasons(league);
+  if (!seasons.length) throw new Error("未找到该赛事的赛季");
   return seasons[0];
 }
 
-// ---- 战队表（seasonId -> 队伍信息）+ 官方队徽 ----
-const teamCacheBySeason = new Map(); // seasonId -> Map(teamId -> team)
+// ---- 战队表（league+seasonId -> 队伍信息）+ 官方队徽 ----
+const teamCacheBySeason = new Map(); // `${league}:${seasonId}` -> Map(teamId -> team)
 
-// 官方队徽源：lpl.qq.com 战队列表数据文件（含 TeamLogo 字段）
+// 官方队徽源：lpl.qq.com 战队列表数据文件（含 TeamLogo 字段）。
+// 该文件同时覆盖国际战队（T1/GEN/G2…，世界赛/MSI 队徽同样来自这里）
 const TEAM_LIST_URL = "https://lpl.qq.com/web201612/data/LOL_MATCH2_TEAM_LIST.js";
 let teamLogoMap = null;
 let teamLogoMapTime = 0;
@@ -115,9 +134,12 @@ async function loadTeamLogos() {
   return teamLogoMap;
 }
 
-async function getTeams(seasonId) {
-  const hit = teamCacheBySeason.get(seasonId);
+async function getTeams(league, seasonId) {
+  const cacheKey = `${league}:${seasonId}`;
+  const hit = teamCacheBySeason.get(cacheKey);
   if (hit) return hit;
+  const conf = LEAGUES[league];
+  if (!conf) throw new Error(`不支持的赛事: ${league}`);
   const j = await getJSON(`${BASE_TEAMLIST}?r1=theTeamlist&p1=${seasonId}`);
   const arr = Array.isArray(j.msg) ? j.msg : [];
   const map = new Map();
@@ -132,7 +154,7 @@ async function getTeams(seasonId) {
     const logo = logos.get(id);
     if (logo) team.logo = logo;
   }
-  teamCacheBySeason.set(seasonId, map);
+  teamCacheBySeason.set(cacheKey, map);
   return map;
 }
 
@@ -142,13 +164,15 @@ function resetTeamCache() {
 
 // ---- 赛程 ----
 // 拉取某一时间段（或整赛季）的赛程
-async function fetchScheduleRaw({ seasonId, from, to, status = "", pagesize = 500, maxPages = 5 }) {
+async function fetchScheduleRaw({ league = DEFAULT_LEAGUE, seasonId, from, to, status = "", pagesize = 500, maxPages = 5 }) {
+  const conf = LEAGUES[league];
+  if (!conf) throw new Error(`不支持的赛事: ${league}`);
   const all = [];
   let page = 1;
   let total = Infinity;
   while (page <= maxPages && all.length < total) {
     const p = new URLSearchParams({
-      p8: LPL_BGAME,
+      p8: conf.bGame,
       p1: seasonId,
       p4: status,
       p2: "",
@@ -172,7 +196,8 @@ async function fetchScheduleRaw({ seasonId, from, to, status = "", pagesize = 50
 }
 
 // 归一化为通用比赛对象
-function normalizeMatch(m, teamMap) {
+function normalizeMatch(m, teamMap, league = DEFAULT_LEAGUE) {
+  const conf = LEAGUES[league] || LEAGUES[DEFAULT_LEAGUE];
   const ta = teamMap.get(String(m.TeamA));
   const tb = teamMap.get(String(m.TeamB));
   const scoreA = parseInt(m.ScoreA, 10) || 0;
@@ -183,14 +208,14 @@ function normalizeMatch(m, teamMap) {
     winner = scoreA > scoreB ? "A" : "B";
   }
   return {
-    id: `lpl-${m.bMatchId}`,
+    id: `${league}-${m.bMatchId}`,
     sourceId: String(m.bMatchId),
-    league: "lpl",
-    leagueName: "LPL",
+    league,
+    leagueName: conf.label,
     stage: m.GameTypeName || m.GameName || "",
     week: m.GameProcName || "",
     round: null,
-    bo: BO_MAP[String(m.GameMode)] || `Bo${m.GameMode}`,
+    bo: boLabel(m.GameMode),
     teamA: { id: String(m.TeamA), name: ta ? ta.name : m.bMatchName.split(" vs ")[0] || "TBD", logo: ta ? ta.logo : "" },
     teamB: { id: String(m.TeamB), name: tb ? tb.name : (m.bMatchName.split(" vs ")[1] || "TBD"), logo: tb ? tb.logo : "" },
     scoreA, scoreB, winner,
@@ -201,14 +226,14 @@ function normalizeMatch(m, teamMap) {
 }
 
 // 获取整季赛程（默认最新赛季；过滤 SOLO 选边等非正式比赛）
-async function getSchedule({ seasonId, from, to } = {}) {
-  const season = seasonId || (await latestSeason()).id;
-  const teams = await getTeams(season);
-  const raw = (await fetchScheduleRaw({ seasonId: season, from, to }))
+async function getSchedule({ league = DEFAULT_LEAGUE, seasonId, from, to } = {}) {
+  const season = seasonId || (await latestSeason(league)).id;
+  const teams = await getTeams(league, season);
+  const raw = (await fetchScheduleRaw({ league, seasonId: season, from, to }))
     .filter((m) => !isExcludedStage(m.GameTypeName || m.GameName));
-  const list = raw.map((m) => normalizeMatch(m, teams));
+  const list = raw.map((m) => normalizeMatch(m, teams, league));
   list.sort((a, b) => (a.time || "").localeCompare(b.time || ""));
-  return { league: "lpl", seasonId: season, matches: list };
+  return { league, seasonId: season, matches: list };
 }
 
 // ---- 比赛详情（已结束才有数据）----
@@ -426,7 +451,7 @@ function normalizeDetail(d) {
     sourceId: String(d.matchId),
     league: "lpl",
     matchName: d.matchName || "",
-    bo: BO_MAP[String(d.gameMode)] || "Bo3",
+    bo: boLabel(d.gameMode),
     time: d.matchTime ? new Date(d.matchTime).toISOString() : null,
     teamA: { id: String(d.teamAId), name: d.teamAName },
     teamB: { id: String(d.teamBId), name: d.teamBName },
@@ -456,11 +481,18 @@ const KNOWN_GROUP_LABELS = [
 
 // stage 分类规则（按 2019-2026 官方命名实测归纳；未命中任何规则的 stage 归入“其他阶段”，不丢数据）
 const SPLIT_RE = /^第[一二三四五六七八九十]+赛段/;   // 第一赛段组内赛 / 第三赛段骑士之路 …
-const GROUP_PHASE_RE = /组内赛|常规赛|小组赛/;          // 循环赛阶段（用于推导分组）
+const GROUP_PHASE_RE = /组内赛|常规赛|小组赛|瑞士轮/;   // 循环赛阶段（用于推导分组；瑞士轮按整体一组统计）
 const KNIGHT_RE = /骑士之路/;
-const PLAYOFF_RE = /淘汰赛|季后赛/;                      // 单败淘汰（最后一轮即决赛）
-const SEASON_PLAYOFF_RE = /赛季季后赛/;                  // “2026赛季季后赛”= 赛季总冠军淘汰赛
-const QUALIFIER_RE = /^资格赛/;                          // 资格赛（如全球总决赛资格，不评冠军）
+const PLAYOFF_RE = /淘汰赛|季后赛|决赛组/;              // 单败淘汰（最后一轮即决赛）
+
+// 通用阶段（无“第X赛段”前缀）的角色判定：
+// group = 循环赛（分组 + 积分榜）/ final = 淘汰（对阵树 + 冠军）/ other = 对阵树（不评冠军）
+function stageRole(stage) {
+  const s = String(stage || "");
+  if (GROUP_PHASE_RE.test(s)) return "group";
+  if (PLAYOFF_RE.test(s)) return "final";
+  return "other";
+}
 
 const CN_NUM = { "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9 };
 function splitOrder(name) {
@@ -518,6 +550,13 @@ function lastTime(matches) {
   }, 0);
 }
 
+function firstTime(matches) {
+  return matches.reduce((acc, m) => {
+    const t = new Date(m.time || 0).getTime() || 0;
+    return !acc || t < acc ? t : acc;
+  }, 0);
+}
+
 // 阶段状态：finished=全部打完 / current=进行中 / upcoming=尚未开打
 function sectionStatus(matches) {
   if (!matches.length) return "upcoming";
@@ -558,7 +597,7 @@ function buildBracketRounds(list, { finalIsFinal = true } = {}) {
 }
 
 // 组装一个“赛段/阶段”的全部结构数据（分组 + 对阵树 + 冠军 + 组内积分榜）
-function buildSection({ key, name, groupMatches, brackets, teams, isSplit }) {
+function buildSection({ key, name, groupMatches, brackets, teams, isSplit, singleGroupName }) {
   const allMatches = [...groupMatches, ...brackets.flatMap((b) => b.matches)];
 
   // 分组：由组内赛对战连通性推导；命中已知名单（登峰/坚韧/涅槃）时套用展示名
@@ -568,6 +607,8 @@ function buildSection({ key, name, groupMatches, brackets, teams, isSplit }) {
       ? { name: known.name, desc: known.desc, teams: g.teams }
       : { name: g.name, desc: roundRobinDesc(g.teams, groupMatches), teams: g.teams };
   });
+  // 只推导出一个组时（瑞士轮 / 单组赛制），用阶段名作组名
+  if (groups.length === 1 && singleGroupName) groups[0].name = singleGroupName;
   if (!groups.length && isSplit && allMatches.length) {
     // 组内赛尚未开打（无法推导分组）：先按该赛段全部队伍给占位分组
     const names = [...new Set(allMatches.flatMap((m) => [m.teamA.name, m.teamB.name]))];
@@ -605,14 +646,15 @@ function buildSection({ key, name, groupMatches, brackets, teams, isSplit }) {
   };
 }
 
-async function getSeasonStructure({ seasonId } = {}) {
-  const season = seasonId || (await latestSeason()).id;
-  const { matches } = await getSchedule({ seasonId: season });
-  const teams = [...(await getTeams(season)).values()];
+async function getSeasonStructure({ league = DEFAULT_LEAGUE, seasonId } = {}) {
+  const season = seasonId || (await latestSeason(league)).id;
+  const { matches } = await getSchedule({ league, seasonId: season });
+  const teams = [...(await getTeams(league, season)).values()];
 
-  // 1) 按 stage 前缀归类：第X赛段 / 赛季级阶段（赛季季后赛、资格赛、其他）
-  const splitStages = new Map();   // 赛段名 -> Map(stage -> matches)
-  const sectionStages = new Map(); // sectionKey -> { name, stages: Map(stage -> matches) }
+  // 1) 按 stage 归类：带“第X赛段”前缀的进赛段桶；其余每个 stage 一个独立阶段
+  //    （LPL：赛季季后赛/资格赛；世界赛：瑞士轮/淘汰赛/入围赛；德杯：小组赛/淘汰赛/决赛组…）
+  const splitStages = new Map(); // 赛段名 -> Map(stage -> matches)
+  const stageMap = new Map();    // 其余 stage -> matches
   for (const m of matches) {
     const stage = String(m.stage || "");
     if (isExcludedStage(stage)) continue;
@@ -623,13 +665,8 @@ async function getSeasonStructure({ seasonId } = {}) {
       if (!byStage.has(stage)) byStage.set(stage, []);
       byStage.get(stage).push(m);
     } else {
-      const key = SEASON_PLAYOFF_RE.test(stage) ? "playoffs" : QUALIFIER_RE.test(stage) ? "qualifier" : "other";
-      if (!sectionStages.has(key)) {
-        sectionStages.set(key, { key, name: { playoffs: "赛季季后赛", qualifier: "资格赛", other: "其他阶段" }[key], stages: new Map() });
-      }
-      const sec = sectionStages.get(key);
-      if (!sec.stages.has(stage)) sec.stages.set(stage, []);
-      sec.stages.get(stage).push(m);
+      if (!stageMap.has(stage)) stageMap.set(stage, []);
+      stageMap.get(stage).push(m);
     }
   }
 
@@ -660,21 +697,34 @@ async function getSeasonStructure({ seasonId } = {}) {
         };
       })
       .sort((a, b) => a.sortKind - b.sortKind || a.sortTime - b.sortTime);
-    return buildSection({ key: splitName, name: splitName, groupMatches, brackets, teams, isSplit: true });
+    return buildSection({
+      key: splitName, name: splitName, groupMatches, brackets, teams, isSplit: true,
+      singleGroupName: mainGroup ? (mainGroup.stage.slice(splitName.length) || splitName) : null,
+    });
   });
 
-  // 3) 赛季级阶段卡片（赛季季后赛评冠军；资格赛/其他不评）
-  const sections = [];
-  for (const key of ["playoffs", "qualifier", "other"]) {
-    const sec = sectionStages.get(key);
-    if (!sec) continue;
-    const brackets = [...sec.stages.entries()]
-      .map(([s, ms]) => ({ key: s, title: s, finalIsFinal: key === "playoffs", matches: ms, sortKind: 2, sortTime: lastTime(ms) }))
-      .sort((a, b) => a.sortTime - b.sortTime);
-    const built = buildSection({ key, name: sec.name, groupMatches: [], brackets, teams, isSplit: false });
-    if (key !== "playoffs") built.champion = null;
-    sections.push(built);
-  }
+  // 3) 通用阶段卡片：group 类（瑞士轮/小组赛…）→ 分组 + 积分榜；
+  //    final 类（淘汰赛/季后赛/决赛组）→ 对阵树 + 冠军；其余（资格赛/入围赛/骑士之路类）→ 对阵树
+  const sections = [...stageMap.entries()]
+    .map(([stage, ms]) => {
+      const role = stageRole(stage);
+      const name = stage.replace(/^\d{4}赛季?/, "") || stage; // “2026赛季季后赛”→“赛季季后赛”
+      if (role === "group") {
+        return {
+          t: firstTime(ms),
+          section: buildSection({ key: stage, name, groupMatches: ms, brackets: [], teams, isSplit: false, singleGroupName: name }),
+        };
+      }
+      return {
+        t: firstTime(ms),
+        section: buildSection({
+          key: stage, name, groupMatches: [], teams, isSplit: false,
+          brackets: [{ key: stage, title: name, finalIsFinal: role === "final", matches: ms, sortKind: 2, sortTime: lastTime(ms) }],
+        }),
+      };
+    })
+    .sort((a, b) => a.t - b.t)
+    .map((x) => x.section);
 
   // 4) 默认展示的赛段：进行中的 → 最近有完赛的 → 最后一个
   const all = [...splits, ...sections];
@@ -686,22 +736,23 @@ async function getSeasonStructure({ seasonId } = {}) {
     if (t > bestFinished) { bestFinished = t; defaultSplit = s.key; }
   }
 
-  return { seasonId: season, defaultSplit, splits: all };
+  return { league, seasonId: season, defaultSplit, splits: all };
 }
 
 // 按赛段返回分组的积分榜
-async function getStandingsGroups(stage, { seasonId } = {}) {
+async function getStandingsGroups(stage, { league = DEFAULT_LEAGUE, seasonId } = {}) {
   if (!stage || stage === "全部") {
-    const { matches } = await getSchedule(seasonId ? { seasonId } : {});
+    const { matches } = await getSchedule({ league, seasonId });
     return [{ name: "整个赛季", rows: computeStandings(matches) }];
   }
-  const structure = await getSeasonStructure(seasonId ? { seasonId } : {});
+  const structure = await getSeasonStructure({ league, seasonId });
   const split = structure.splits.find((s) => s.key === stage);
   return split ? split.standings : [];
 }
 
 module.exports = {
+  LEAGUES, DEFAULT_LEAGUE,
   listSeasons, latestSeason, getTeams, getLogo, getSchedule, getMatchDetail, getSeasonStructure, getStandingsGroups, resetTeamCache,
   // 以下为纯函数，导出仅供单测使用（不承担对外 API 职责）
-  stripJsonp, isExcludedStage, splitOrder, normalizeMatch, deriveGroups, buildBracketRounds,
+  stripJsonp, isExcludedStage, splitOrder, stageRole, boLabel, normalizeMatch, deriveGroups, buildBracketRounds,
 };

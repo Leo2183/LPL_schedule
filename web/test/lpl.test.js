@@ -7,7 +7,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const {
-  stripJsonp, isExcludedStage, splitOrder, normalizeMatch, deriveGroups, buildBracketRounds,
+  stripJsonp, isExcludedStage, splitOrder, stageRole, boLabel, normalizeMatch, deriveGroups, buildBracketRounds, LEAGUES,
 } = require("../lib/lpl");
 
 // ---------------- stripJsonp ----------------
@@ -43,6 +43,25 @@ test("splitOrder：中文数字赛段排序（含组合数字）", () => {
   assert.equal(splitOrder("第二十赛段"), 20);
   assert.equal(splitOrder("第二十三赛段"), 23);
   assert.ok(splitOrder("常规赛") > 20, "未匹配的名称应排到最后");
+});
+
+// ---------------- 通用阶段角色（多赛事） ----------------
+test("stageRole：循环赛 / 淘汰 / 其他 三类角色", () => {
+  assert.equal(stageRole("瑞士轮"), "group");            // 世界赛
+  assert.equal(stageRole("小组赛"), "group");            // 德杯 / MSI
+  assert.equal(stageRole("第一赛段组内赛"), "group");    // LPL（带前缀不影响）
+  assert.equal(stageRole("淘汰赛"), "final");
+  assert.equal(stageRole("2026赛季季后赛"), "final");    // LPL 赛季级
+  assert.equal(stageRole("决赛组"), "final");            // 德杯
+  assert.equal(stageRole("资格赛"), "other");            // 不评冠军
+  assert.equal(stageRole("入围赛"), "other");            // 世界赛 / MSI
+  assert.equal(stageRole("骑士之路"), "other");
+});
+
+test("LEAGUES：四项赛事配置齐全", () => {
+  for (const k of ["lpl", "worlds", "msi", "demacia"]) {
+    assert.ok(LEAGUES[k] && LEAGUES[k].bGame && LEAGUES[k].label, `缺少 ${k} 配置`);
+  }
 });
 
 // ---------------- normalizeMatch ----------------
@@ -84,6 +103,30 @@ test("normalizeMatch：GameMode 1/3/5 与未知值", () => {
   assert.equal(normalizeMatch(raw({ GameMode: "3" }), teamMap).bo, "Bo3");
   assert.equal(normalizeMatch(raw({ GameMode: "5" }), teamMap).bo, "Bo5");
   assert.equal(normalizeMatch(raw({ GameMode: "2" }), teamMap).bo, "Bo2");
+});
+
+// ---------------- boLabel（gameMode 双格式兼容） ----------------
+test("boLabel：赛程接口数字与详情接口字符串（BO5）两种格式", () => {
+  // 赛程接口：数字
+  assert.equal(boLabel("1"), "Bo1");
+  assert.equal(boLabel("3"), "Bo3");
+  assert.equal(boLabel("4"), "Bo5");   // 腾讯用 4 表示季后赛 Bo5
+  assert.equal(boLabel("5"), "Bo5");
+  assert.equal(boLabel("2"), "Bo2");
+  // 详情接口（tjstats）：字符串 “BO5”/“BO3”（曾导致世界赛详情误标 Bo3）
+  assert.equal(boLabel("BO5"), "Bo5");
+  assert.equal(boLabel("BO3"), "Bo3");
+  assert.equal(boLabel("bo1"), "Bo1");
+  // 缺省 / 未知
+  assert.equal(boLabel(undefined), "Bo3");
+  assert.equal(boLabel(""), "Bo3");
+});
+
+test("normalizeMatch：league 参数决定 id 前缀与赛事名", () => {
+  const m = normalizeMatch(raw(), teamMap, "worlds");
+  assert.equal(m.id, "worlds-12345");
+  assert.equal(m.league, "worlds");
+  assert.equal(m.leagueName, "全球总决赛");
 });
 
 test("normalizeMatch：未结束无 winner；平局比分不产生 winner", () => {
