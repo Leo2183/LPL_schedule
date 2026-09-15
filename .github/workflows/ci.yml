@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 单元测试（node:test，零依赖）
+        run: node --test
+        working-directory: web
+      - name: 校验 web/ 与 Android assets 一致
+        run: node scripts/sync-android.mjs --check

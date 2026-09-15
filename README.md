@@ -95,6 +95,22 @@ node server.js        # 需 Node ≥ 18，零依赖
 
 ---
 
+## 🛠 开发
+
+`web/` 是唯一事实源，Android 侧（`lol-app/app/src/main/assets/nodejs-project/`）是它的拷贝：
+
+```bash
+# 改完 web/ 后同步到 Android assets（CI 会校验两端一致）
+node scripts/sync-android.mjs
+
+# 跑单元测试（node:test，零依赖）
+cd web && npm test        # 即 node --test
+```
+
+- CI（GitHub Actions）：push / PR 时自动跑单测 + 两端同步校验
+
+---
+
 ## 📜 说明
 
 - 数据由设备上 Node 请求腾讯官方赛事接口（`apps.game.qq.com` / `open.tjstats.com` / Riot DDragon 等），WebView 不跨域

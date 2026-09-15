@@ -700,4 +700,8 @@ async function getStandingsGroups(stage, { seasonId } = {}) {
   return split ? split.standings : [];
 }
 
-module.exports = { listSeasons, latestSeason, getTeams, getLogo, getSchedule, getMatchDetail, getSeasonStructure, getStandingsGroups, resetTeamCache };
+module.exports = {
+  listSeasons, latestSeason, getTeams, getLogo, getSchedule, getMatchDetail, getSeasonStructure, getStandingsGroups, resetTeamCache,
+  // 以下为纯函数，导出仅供单测使用（不承担对外 API 职责）
+  stripJsonp, isExcludedStage, splitOrder, normalizeMatch, deriveGroups, buildBracketRounds,
+};
