@@ -56,13 +56,27 @@ function toISO(dateStr) {
 // GameMode 值：1=Bo1、3=Bo3、5=Bo5；腾讯对季后赛(Bo5)返回 4，据实映射为 Bo5
 const BO_MAP = { "1": "Bo1", "3": "Bo3", "4": "Bo5", "5": "Bo5" };
 
-// ---- 赛季发现：返回当前/最新赛季 ----
+// 非正式比赛的 stage（如“SOLO选边”选边局，Bo1 单局不计战绩），不进入赛程/积分/对阵
+const EXCLUDED_STAGE_RES = [/^SOLO选边/];
+function isExcludedStage(stage) {
+  return EXCLUDED_STAGE_RES.some((re) => re.test(String(stage || "")));
+}
+
+// ---- 赛季发现：返回全部赛季（最新在前），带 1h 内存缓存 ----
+let seasonsMemo = null;
+let seasonsMemoTime = 0;
+const SEASONS_TTL = 3600 * 1000;
+
 async function listSeasons() {
+  const now = Date.now();
+  if (seasonsMemo && now - seasonsMemoTime < SEASONS_TTL) return seasonsMemo;
   const j = await getJSON(`${BASE_GAMELIST}?r1=gamelist&p1=${LPL_BGAME}`);
   const list = (j.msg || []).filter((s) => s && s.GameId);
   // 按 GameId 数字降序，最新在前
   list.sort((a, b) => Number(b.GameId) - Number(a.GameId));
-  return list.map((s) => ({ id: String(s.GameId), name: s.GameName }));
+  seasonsMemo = list.map((s) => ({ id: String(s.GameId), name: s.GameName }));
+  seasonsMemoTime = now;
+  return seasonsMemo;
 }
 
 async function latestSeason() {
@@ -71,8 +85,8 @@ async function latestSeason() {
   return seasons[0];
 }
 
-// ---- 战队表（id -> 队伍信息）+ 官方队徽 ----
-let teamCache = null;
+// ---- 战队表（seasonId -> 队伍信息）+ 官方队徽 ----
+const teamCacheBySeason = new Map(); // seasonId -> Map(teamId -> team)
 
 // 官方队徽源：lpl.qq.com 战队列表数据文件（含 TeamLogo 字段）
 const TEAM_LIST_URL = "https://lpl.qq.com/web201612/data/LOL_MATCH2_TEAM_LIST.js";
@@ -102,7 +116,8 @@ async function loadTeamLogos() {
 }
 
 async function getTeams(seasonId) {
-  if (teamCache) return teamCache;
+  const hit = teamCacheBySeason.get(seasonId);
+  if (hit) return hit;
   const j = await getJSON(`${BASE_TEAMLIST}?r1=theTeamlist&p1=${seasonId}`);
   const arr = Array.isArray(j.msg) ? j.msg : [];
   const map = new Map();
@@ -117,12 +132,12 @@ async function getTeams(seasonId) {
     const logo = logos.get(id);
     if (logo) team.logo = logo;
   }
-  teamCache = map;
+  teamCacheBySeason.set(seasonId, map);
   return map;
 }
 
 function resetTeamCache() {
-  teamCache = null;
+  teamCacheBySeason.clear();
 }
 
 // ---- 赛程 ----
@@ -185,11 +200,12 @@ function normalizeMatch(m, teamMap) {
   };
 }
 
-// 获取整季赛程（默认最新赛季）
+// 获取整季赛程（默认最新赛季；过滤 SOLO 选边等非正式比赛）
 async function getSchedule({ seasonId, from, to } = {}) {
   const season = seasonId || (await latestSeason()).id;
   const teams = await getTeams(season);
-  const raw = await fetchScheduleRaw({ seasonId: season, from, to });
+  const raw = (await fetchScheduleRaw({ seasonId: season, from, to }))
+    .filter((m) => !isExcludedStage(m.GameTypeName || m.GameName));
   const list = raw.map((m) => normalizeMatch(m, teams));
   list.sort((a, b) => (a.time || "").localeCompare(b.time || ""));
   return { league: "lpl", seasonId: season, matches: list };
@@ -427,15 +443,36 @@ async function getLogo(teamId) {
   return logos.get(String(teamId)) || "";
 }
 
-// ---------------- 赛季结构（对阵图用）----------------
-const SPLIT1_GROUPS = [
+// ---------------- 赛季结构（对阵图用；赛段/阶段全部由 stage 命名自动推导） ----------------
+const { computeStandings } = require("./standings");
+
+// 已知分组的展示名与说明（登峰组/坚韧组/涅槃组无法从对战数据推导）。
+// 按组内队伍名单精确匹配后才应用；名单对不上（其他赛季/其他赛段）自动退回“第N组”。
+const KNOWN_GROUP_LABELS = [
   { name: "登峰组", desc: "前4直进淘汰赛；第5/6名进骑士之路第一轮", teams: ["AL", "BLG", "WBG", "北京JDG", "TES", "IG"] },
   { name: "坚韧组", desc: "第1/2名进骑士之路第一轮；第3/4名进第二轮", teams: ["深圳NIP", "西安WE", "EDG", "TT"] },
   { name: "涅槃组", desc: "第1/2名进骑士之路第二轮；第3/4名本赛段淘汰", teams: ["苏州LNG", "OMG", "LGD", "UP"] },
 ];
 
+// stage 分类规则（按 2019-2026 官方命名实测归纳；未命中任何规则的 stage 归入“其他阶段”，不丢数据）
+const SPLIT_RE = /^第[一二三四五六七八九十]+赛段/;   // 第一赛段组内赛 / 第三赛段骑士之路 …
+const GROUP_PHASE_RE = /组内赛|常规赛|小组赛/;          // 循环赛阶段（用于推导分组）
+const KNIGHT_RE = /骑士之路/;
+const PLAYOFF_RE = /淘汰赛|季后赛/;                      // 单败淘汰（最后一轮即决赛）
+const SEASON_PLAYOFF_RE = /赛季季后赛/;                  // “2026赛季季后赛”= 赛季总冠军淘汰赛
+const QUALIFIER_RE = /^资格赛/;                          // 资格赛（如全球总决赛资格，不评冠军）
+
+const CN_NUM = { "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9 };
+function splitOrder(name) {
+  const m = name.match(/^第([一二三四五六七八九十]+)赛段$/);
+  if (!m) return 99;
+  const n = m[1].match(/^([一二三四五六七八九])?十([一二三四五六七八九])?$/);
+  if (n) return (n[1] ? CN_NUM[n[1]] : 1) * 10 + (n[2] ? CN_NUM[n[2]] : 0); // 十 ~ 九十九
+  return CN_NUM[m[1]] || 99;
+}
+
 // 由组内赛对战关系推导分组（连通分量）
-function deriveGroups(matches, teams) {
+function deriveGroups(matches) {
   const adj = new Map();
   for (const m of matches) {
     for (const t of [m.teamA.name, m.teamB.name]) if (!adj.has(t)) adj.set(t, new Set());
@@ -459,133 +496,208 @@ function deriveGroups(matches, teams) {
   comps.sort((a, b) => b.length - a.length);
   return comps.map((c, i) => ({
     name: `第${["一", "二", "三", "四"][i] || i + 1}组`,
-    desc: "组内双循环",
+    desc: "",
     teams: c,
   }));
+}
+
+// 由队伍数与已排场次推断循环制说明（单循环 n(n-1)/2 场 / 双循环 n(n-1) 场）
+function roundRobinDesc(teams, matches) {
+  const n = teams.length;
+  if (n < 2) return "";
+  const inGroup = matches.filter((m) => teams.includes(m.teamA.name) && teams.includes(m.teamB.name));
+  if (inGroup.length === n * (n - 1)) return `${n}队双循环`;
+  if (inGroup.length === (n * (n - 1)) / 2) return `${n}队单循环`;
+  return "";
+}
+
+function lastTime(matches) {
+  return matches.reduce((acc, m) => {
+    const t = new Date(m.time || 0).getTime() || 0;
+    return t > acc ? t : acc;
+  }, 0);
+}
+
+// 阶段状态：finished=全部打完 / current=进行中 / upcoming=尚未开打
+function sectionStatus(matches) {
+  if (!matches.length) return "upcoming";
+  if (matches.every((m) => m.status === 3)) return "finished";
+  if (matches.every((m) => m.status === 1)) return "upcoming";
+  return "current";
 }
 
 function findTeam(teamList, name) {
   return teamList.find((t) => t.name === name) || { id: "", name, logo: "" };
 }
 
-async function getSeasonStructure() {
-  const { matches } = await getSchedule();
-  const seasonId = (await latestSeason()).id;
-  const teams = [...(await getTeams(seasonId)).values()];
-
-  const splitMatches = (name) => matches.filter((m) => m.stage.startsWith(name));
-
-  // 把一列比赛重建为树状对阵：按时间排序，每场的轮次 = 双方上一场比赛轮次+1，
-  // 并记录父节点（双方各自上一场的比赛 id），前端据此画树状连线
-  function buildBracketRounds(list, { finalIsFinal = true } = {}) {
-    const sorted = [...list].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
-    const teamLast = new Map(); // 队名 -> 最近一场 node
-    const nodes = [];
-    for (const m of sorted) {
-      const pA = teamLast.get(m.teamA.name) || null;
-      const pB = teamLast.get(m.teamB.name) || null;
-      const round = 1 + Math.max(pA ? pA.round : 0, pB ? pB.round : 0);
-      const node = { match: m, round, parents: [pA ? pA.match.id : null, pB ? pB.match.id : null] };
-      nodes.push(node);
-      teamLast.set(m.teamA.name, node);
-      teamLast.set(m.teamB.name, node);
-    }
-    const maxRound = Math.max(0, ...nodes.map((n) => n.round));
-    const CN = ["", "一", "二", "三", "四", "五", "六", "七", "八"];
-    const rounds = [];
-    for (let r = 1; r <= maxRound; r++) {
-      rounds.push({
-        name: r === maxRound && finalIsFinal ? "决赛" : `第${CN[r] || r}轮`,
-        matches: nodes.filter((n) => n.round === r).map((n) => ({ ...n.match, parents: n.parents })),
-      });
-    }
-    return rounds;
+// 把一列比赛重建为树状对阵：按时间排序，每场的轮次 = 双方上一场比赛轮次+1，
+// 并记录父节点（双方各自上一场的比赛 id），前端据此画树状连线
+function buildBracketRounds(list, { finalIsFinal = true } = {}) {
+  const sorted = [...list].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const teamLast = new Map(); // 队名 -> 最近一场 node
+  const nodes = [];
+  for (const m of sorted) {
+    const pA = teamLast.get(m.teamA.name) || null;
+    const pB = teamLast.get(m.teamB.name) || null;
+    const round = 1 + Math.max(pA ? pA.round : 0, pB ? pB.round : 0);
+    const node = { match: m, round, parents: [pA ? pA.match.id : null, pB ? pB.match.id : null] };
+    nodes.push(node);
+    teamLast.set(m.teamA.name, node);
+    teamLast.set(m.teamB.name, node);
   }
-  const groupTeams = (names) => names.map((n) => findTeam(teams, n));
-  const splitStandings = (ms) => {
-    const { computeStandings } = require("./standings");
-    return computeStandings(ms);
-  };
-  // 每个分组单独统计积分榜（只统计该组内部的比赛）
-  const groupStandings = (groupMatches, groupNameLists) => groupNameLists.map((g) => ({
+  const maxRound = Math.max(0, ...nodes.map((n) => n.round));
+  const CN = ["", "一", "二", "三", "四", "五", "六", "七", "八"];
+  const rounds = [];
+  for (let r = 1; r <= maxRound; r++) {
+    rounds.push({
+      name: r === maxRound && finalIsFinal ? "决赛" : `第${CN[r] || r}轮`,
+      matches: nodes.filter((n) => n.round === r).map((n) => ({ ...n.match, parents: n.parents })),
+    });
+  }
+  return rounds;
+}
+
+// 组装一个“赛段/阶段”的全部结构数据（分组 + 对阵树 + 冠军 + 组内积分榜）
+function buildSection({ key, name, groupMatches, brackets, teams, isSplit }) {
+  const allMatches = [...groupMatches, ...brackets.flatMap((b) => b.matches)];
+
+  // 分组：由组内赛对战连通性推导；命中已知名单（登峰/坚韧/涅槃）时套用展示名
+  let groups = deriveGroups(groupMatches).map((g) => {
+    const known = KNOWN_GROUP_LABELS.find((l) => l.teams.length === g.teams.length && l.teams.every((t) => g.teams.includes(t)));
+    return known
+      ? { name: known.name, desc: known.desc, teams: g.teams }
+      : { name: g.name, desc: roundRobinDesc(g.teams, groupMatches), teams: g.teams };
+  });
+  if (!groups.length && isSplit && allMatches.length) {
+    // 组内赛尚未开打（无法推导分组）：先按该赛段全部队伍给占位分组
+    const names = [...new Set(allMatches.flatMap((m) => [m.teamA.name, m.teamB.name]))];
+    groups = [{ name: "组内赛", desc: "开赛后按对战关系自动分组", teams: names }];
+  }
+
+  const builtBrackets = brackets
+    .map((b) => ({ key: b.key, title: b.title, rounds: buildBracketRounds(b.matches, { finalIsFinal: b.finalIsFinal }) }))
+    .filter((b) => b.rounds.length);
+
+  // 冠军：淘汰赛类对阵中时间最后一场已结束比赛的胜者
+  let champion = null;
+  const finals = brackets.filter((b) => b.finalIsFinal).flatMap((b) => b.matches).filter((m) => m.status === 3);
+  if (finals.length) {
+    const last = finals.reduce((a, b) => ((new Date(b.time || 0) > new Date(a.time || 0)) ? b : a));
+    champion = last.winner === "A" ? last.teamA.name : last.winner === "B" ? last.teamB.name : null;
+  }
+
+  // 组内积分榜（每组只统计组内对战）
+  const standings = groups.map((g) => ({
     name: g.name,
-    rows: splitStandings(groupMatches.filter((m) => g.teams.includes(m.teamA.name) && g.teams.includes(m.teamB.name))),
+    rows: computeStandings(groupMatches.filter((m) => g.teams.includes(m.teamA.name) && g.teams.includes(m.teamB.name))),
   }));
-  const championOf = (playoffMatches) => {
-    const sorted = [...playoffMatches].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
-    const last = sorted[sorted.length - 1];
-    if (!last || last.status !== 3) return null;
-    return last.winner === "A" ? last.teamA.name : last.winner === "B" ? last.teamB.name : null;
-  };
 
-  const s1 = splitMatches("第一赛段");
-  const s2 = splitMatches("第二赛段");
-  const s3 = splitMatches("第三赛段");
-
-  const split1GroupMatches = s1.filter((m) => m.stage === "第一赛段组内赛");
-  const split2GroupMatches = s2.filter((m) => m.stage === "第二赛段组内赛");
-  const split3GroupMatches = s3.filter((m) => m.stage === "第三赛段组内赛");
-
-  const playoff1 = s1.filter((m) => m.stage === "第一赛段淘汰赛");
-  const playoff2 = s2.filter((m) => m.stage === "第二赛段淘汰赛");
-
-  const s2Groups = deriveGroups(split2GroupMatches, teams);
-  const s3Teams = [...new Set(split3GroupMatches.flatMap((m) => [m.teamA.name, m.teamB.name]))];
-  const s3Groups = [{ name: "组内赛 · 12队单循环", desc: "骑士之路与淘汰赛将于组内赛后进行", teams: s3Teams }];
-
-  // 各赛段按组别的积分榜（只统计组内对战）
-  const s1Standings = groupStandings(split1GroupMatches, SPLIT1_GROUPS);
-  const s2Standings = groupStandings(split2GroupMatches, s2Groups);
-  const s3Standings = groupStandings(split3GroupMatches, s3Groups);
-
+  const finished = allMatches.filter((m) => m.status === 3);
   return {
-    seasonId,
-    splits: [
-      {
-        key: "第一赛段",
-        name: "第一赛段",
-        status: "finished",
-        champion: championOf(playoff1),
-        groups: SPLIT1_GROUPS.map((g) => ({ ...g, teams: groupTeams(g.teams) })),
-        knightRoad: buildBracketRounds(s1.filter((m) => m.stage === "第一赛段骑士之路"), { finalIsFinal: false }),
-        playoffs: buildBracketRounds(playoff1),
-        standings: s1Standings,
-      },
-      {
-        key: "第二赛段",
-        name: "第二赛段",
-        status: "finished",
-        champion: championOf(playoff2),
-        groups: s2Groups.map((g) => ({ ...g, teams: groupTeams(g.teams) })),
-        knightRoad: buildBracketRounds(s2.filter((m) => m.stage === "第二赛段骑士之路"), { finalIsFinal: false }),
-        playoffs: buildBracketRounds(playoff2),
-        standings: s2Standings,
-      },
-      {
-        key: "第三赛段",
-        name: "第三赛段",
-        status: "current",
-        champion: null,
-        groups: s3Groups.map((g) => ({ ...g, teams: groupTeams(g.teams) })),
-        knightRoad: buildBracketRounds(s3.filter((m) => m.stage.includes("骑士之路"))),
-        playoffs: buildBracketRounds(s3.filter((m) => m.stage.includes("淘汰赛"))),
-        standings: s3Standings,
-      },
-    ],
+    key,
+    name,
+    status: sectionStatus(allMatches),
+    champion,
+    groups: groups.map((g) => ({ name: g.name, desc: g.desc, teams: g.teams.map((n) => findTeam(teams, n)) })),
+    brackets: builtBrackets,
+    standings,
+    lastFinishedAt: finished.length ? new Date(lastTime(finished)).toISOString() : null,
   };
 }
 
+async function getSeasonStructure({ seasonId } = {}) {
+  const season = seasonId || (await latestSeason()).id;
+  const { matches } = await getSchedule({ seasonId: season });
+  const teams = [...(await getTeams(season)).values()];
+
+  // 1) 按 stage 前缀归类：第X赛段 / 赛季级阶段（赛季季后赛、资格赛、其他）
+  const splitStages = new Map();   // 赛段名 -> Map(stage -> matches)
+  const sectionStages = new Map(); // sectionKey -> { name, stages: Map(stage -> matches) }
+  for (const m of matches) {
+    const stage = String(m.stage || "");
+    if (isExcludedStage(stage)) continue;
+    const splitHit = stage.match(SPLIT_RE);
+    if (splitHit) {
+      if (!splitStages.has(splitHit[0])) splitStages.set(splitHit[0], new Map());
+      const byStage = splitStages.get(splitHit[0]);
+      if (!byStage.has(stage)) byStage.set(stage, []);
+      byStage.get(stage).push(m);
+    } else {
+      const key = SEASON_PLAYOFF_RE.test(stage) ? "playoffs" : QUALIFIER_RE.test(stage) ? "qualifier" : "other";
+      if (!sectionStages.has(key)) {
+        sectionStages.set(key, { key, name: { playoffs: "赛季季后赛", qualifier: "资格赛", other: "其他阶段" }[key], stages: new Map() });
+      }
+      const sec = sectionStages.get(key);
+      if (!sec.stages.has(stage)) sec.stages.set(stage, []);
+      sec.stages.get(stage).push(m);
+    }
+  }
+
+  // 2) 赛段卡片（按 一<二<三… 排序）
+  const splits = [...splitStages.keys()].sort((a, b) => splitOrder(a) - splitOrder(b)).map((splitName) => {
+    const byStage = splitStages.get(splitName);
+    // 循环赛阶段可能有多个（如 2025 第二赛段先“小组赛”后“组内赛”）：取结束时间最晚的作主分组阶段，
+    // 其余循环赛阶段不进对阵（属预赛性质，赛程/积分照常计入）
+    const groupStageNames = [...byStage.keys()].filter((s) => GROUP_PHASE_RE.test(s.slice(splitName.length)));
+    let mainGroup = null;
+    for (const s of groupStageNames) {
+      const t = lastTime(byStage.get(s));
+      if (!mainGroup || t > mainGroup.t) mainGroup = { stage: s, t };
+    }
+    const groupMatches = mainGroup ? byStage.get(mainGroup.stage) : [];
+    // 其余 stage 各成一棵对阵树：骑士之路类在前、淘汰赛类在后，其余按时间
+    const brackets = [...byStage.entries()]
+      .filter(([s]) => s !== (mainGroup && mainGroup.stage) && !GROUP_PHASE_RE.test(s.slice(splitName.length)))
+      .map(([s, ms]) => {
+        const rest = s.slice(splitName.length);
+        return {
+          key: s,
+          title: rest || splitName,
+          finalIsFinal: PLAYOFF_RE.test(rest) && !KNIGHT_RE.test(rest),
+          matches: ms,
+          sortKind: KNIGHT_RE.test(rest) ? 0 : PLAYOFF_RE.test(rest) ? 2 : 1,
+          sortTime: lastTime(ms),
+        };
+      })
+      .sort((a, b) => a.sortKind - b.sortKind || a.sortTime - b.sortTime);
+    return buildSection({ key: splitName, name: splitName, groupMatches, brackets, teams, isSplit: true });
+  });
+
+  // 3) 赛季级阶段卡片（赛季季后赛评冠军；资格赛/其他不评）
+  const sections = [];
+  for (const key of ["playoffs", "qualifier", "other"]) {
+    const sec = sectionStages.get(key);
+    if (!sec) continue;
+    const brackets = [...sec.stages.entries()]
+      .map(([s, ms]) => ({ key: s, title: s, finalIsFinal: key === "playoffs", matches: ms, sortKind: 2, sortTime: lastTime(ms) }))
+      .sort((a, b) => a.sortTime - b.sortTime);
+    const built = buildSection({ key, name: sec.name, groupMatches: [], brackets, teams, isSplit: false });
+    if (key !== "playoffs") built.champion = null;
+    sections.push(built);
+  }
+
+  // 4) 默认展示的赛段：进行中的 → 最近有完赛的 → 最后一个
+  const all = [...splits, ...sections];
+  let defaultSplit = all.length ? all[all.length - 1].key : null;
+  let bestFinished = -1;
+  for (const s of all) {
+    if (s.status === "current") { defaultSplit = s.key; break; }
+    const t = s.lastFinishedAt ? new Date(s.lastFinishedAt).getTime() : 0;
+    if (t > bestFinished) { bestFinished = t; defaultSplit = s.key; }
+  }
+
+  return { seasonId: season, defaultSplit, splits: all };
+}
+
 // 按赛段返回分组的积分榜
-async function getStandingsGroups(stage) {
-  const { matches } = await getSchedule();
-  const { computeStandings } = require("./standings");
+async function getStandingsGroups(stage, { seasonId } = {}) {
   if (!stage || stage === "全部") {
+    const { matches } = await getSchedule(seasonId ? { seasonId } : {});
     return [{ name: "整个赛季", rows: computeStandings(matches) }];
   }
-  const structure = await getSeasonStructure();
+  const structure = await getSeasonStructure(seasonId ? { seasonId } : {});
   const split = structure.splits.find((s) => s.key === stage);
-  if (!split) return [];
-  return split.standings;
+  return split ? split.standings : [];
 }
 
 module.exports = { listSeasons, latestSeason, getTeams, getLogo, getSchedule, getMatchDetail, getSeasonStructure, getStandingsGroups, resetTeamCache };

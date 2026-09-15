@@ -159,6 +159,8 @@ body {
   color-scheme: dark;
   max-width: 150px;
 }
+/* 顶栏赛季切换下拉 */
+.season-select { max-width: 128px; padding: 5px 8px; font-size: 12.5px; }
 .filters { display: flex; gap: 8px; }
 .chip {
   padding: 5px 14px;

@@ -5,14 +5,16 @@
 
 const state = {
   view: "schedule",     // schedule | bracket | standings | match(二级页面)
+  seasonId: null,       // 当前赛季（null = 最新赛季）
+  seasons: [],          // 赛季列表（最新在前）
   date: new Date(),     // 当前选中日期（本地时间）
   filter: "all",        // all | 1(未开始) | 2(进行中) | 3(已结束)
   teamFilter: "all",    // all | 战队显示名（按战队筛选，跨全部日期）
   lpl: { matches: [], loaded: false, error: null, seasonId: null },
-  season: null,
-  bracketSplit: "第三赛段", // 对阵图当前显示的赛段
+  season: null,         // 赛季结构（对阵图）
+  bracketSplit: null,   // 对阵图当前赛段（null = 后端推荐：进行中/最近完赛）
   standings: null,
-  standingsStage: "第三赛段", // 全部 | 第一赛段 | 第二赛段 | 第三赛段
+  standingsStage: null, // null(=整个赛季) | 第一赛段 | 第二赛段 | …
   matchId: null,        // 二级页面当前比赛 id
   matchDetail: null,    // 二级页面详情数据
   prevView: "schedule", // 返回时的上一视图
@@ -119,8 +121,11 @@ async function fetchJSON(url) {
 }
 
 async function loadLpl({ force } = {}) {
-  const q = force ? "?force=1" : "";
-  const j = await fetchJSON(`/api/lpl/schedule${q}`);
+  const qs = new URLSearchParams();
+  if (state.seasonId) qs.set("season", state.seasonId);
+  if (force) qs.set("force", "1");
+  const q = qs.toString();
+  const j = await fetchJSON(`/api/lpl/schedule${q ? "?" + q : ""}`);
   state.lpl.matches = j.matches || [];
   state.lpl.seasonId = j.seasonId;
   state.lpl.loaded = true;
@@ -128,15 +133,65 @@ async function loadLpl({ force } = {}) {
 }
 
 async function loadStandings(stage) {
-  const st = stage || state.standingsStage;
-  const j = await fetchJSON(`/api/standings?league=lpl&stage=${encodeURIComponent(st)}`);
+  const st = stage || state.standingsStage || "全部";
+  const qs = new URLSearchParams({ league: "lpl", stage: st });
+  if (state.seasonId) qs.set("season", state.seasonId);
+  const j = await fetchJSON(`/api/standings?${qs}`);
   state.standings = j.groups || [];
   state.standingsStage = st;
 }
 
 async function loadSeason() {
-  const j = await fetchJSON(`/api/lpl/season`);
+  const q = state.seasonId ? `?season=${encodeURIComponent(state.seasonId)}` : "";
+  const j = await fetchJSON(`/api/lpl/season${q}`);
   state.season = j;
+}
+
+// 赛季列表（顶栏下拉）
+async function loadSeasons() {
+  const j = await fetchJSON("/api/lpl/seasons");
+  state.seasons = j.seasons || [];
+  populateSeasonSelect();
+}
+
+function populateSeasonSelect() {
+  const sel = $("#seasonSelect");
+  if (!sel || !state.seasons.length) return;
+  sel.innerHTML = state.seasons
+    .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`)
+    .join("");
+  // 未手动切换过时，下拉指向当前实际加载的赛季（最新）
+  const cur = state.seasonId || state.lpl.seasonId;
+  if (cur && state.seasons.some((s) => String(s.id) === String(cur))) sel.value = cur;
+}
+
+// 当前赛季展示名（如 “2026职业联赛”）
+function currentSeasonName() {
+  const id = state.seasonId || state.lpl.seasonId;
+  const s = state.seasons.find((x) => String(x.id) === String(id));
+  return s ? s.name : "";
+}
+
+// 切换赛季：重置全部派生状态后整体重载
+async function switchSeason(seasonId) {
+  if (String(seasonId) === String(state.seasonId || state.lpl.seasonId || "")) return;
+  state.seasonId = seasonId || null;
+  state.season = null;
+  state.standings = null;
+  state.bracketSplit = null;
+  state.standingsStage = null;
+  state.teamFilter = "all";
+  state.matchId = null;
+  state.matchDetail = null;
+  if (state.view === "match") state.view = "schedule";
+  try { history.pushState(null, "", "#"); } catch (e) { location.hash = ""; }
+  state.lpl.matches = [];
+  state.lpl.loaded = false;
+  state.lpl.error = null;
+  didAutoJump = false;
+  render();
+  toast("正在切换赛季…");
+  await loadAll({});
 }
 
 async function loadAll({ force } = {}) {
@@ -283,8 +338,8 @@ function renderSchedule() {
 
   const metaText = state.lpl.seasonId
     ? (teamFilterOn
-        ? `LPL ${escapeHtml(state.lpl.seasonId)} · 「${escapeHtml(teamSel)}」全部 ${dayMatches.length} 场比赛`
-        : `LPL ${escapeHtml(state.lpl.seasonId)} · ${fmtDateCN(state.date)} 当天 ${dayMatches.length} 场`)
+        ? `${escapeHtml(currentSeasonName() || "LPL")} · 「${escapeHtml(teamSel)}」全部 ${dayMatches.length} 场比赛`
+        : `${escapeHtml(currentSeasonName() || "LPL")} · ${fmtDateCN(state.date)} 当天 ${dayMatches.length} 场`)
     : "";
 
   return `
@@ -380,13 +435,15 @@ function renderBracket() {
     });
     return `${head}<div class="loading"><div class="spinner"></div><p>正在加载赛段结构…</p></div>`;
   }
-  const split = season.splits.find((s) => s.key === state.bracketSplit) || season.splits[season.splits.length - 1];
+  const split = season.splits.find((s) => s.key === state.bracketSplit)
+    || season.splits.find((s) => s.key === season.defaultSplit)
+    || season.splits[season.splits.length - 1];
   return `${head}
     <div class="season-strip">
       ${season.splits.map((s) => `
         <button class="season-chip ${s.key === split.key ? "active" : ""} ${s.status === "current" ? "current" : ""}" data-split="${escapeHtml(s.key)}">
           <span class="sc-name">${escapeHtml(s.name)}</span>
-          <span class="sc-status">${s.status === "current" ? "● 进行中" : "已结束"}</span>
+          <span class="sc-status">${s.status === "current" ? "● 进行中" : s.status === "upcoming" ? "○ 未开始" : "已结束"}</span>
           ${s.champion ? `<span class="sc-champ">🏆 ${escapeHtml(s.champion)}</span>` : ""}
         </button>`).join("")}
     </div>
@@ -395,16 +452,22 @@ function renderBracket() {
 
 function renderSplitCard(split) {
   const isCurrent = split.status === "current";
+  const isUpcoming = split.status === "upcoming";
   const allTeams = (split.groups || []).flatMap((g) => g.teams);
+  // 赛季级阶段（如赛季季后赛）无分组队伍，兜底用队名末尾英文缩写作徽标
   const champTeam = split.champion
-    ? allTeams.find((t) => t.name === split.champion) || { name: split.champion, display: split.champion }
+    ? allTeams.find((t) => t.name === split.champion)
+      || { name: split.champion, display: split.champion, short: (String(split.champion).match(/[A-Za-z0-9]+$/) || ["?"])[0] }
     : null;
+  const brackets = split.brackets || [];
+  const hasStandings = (split.standings || []).some((g) => g.rows && g.rows.length);
   return `
     <div class="split-card ${isCurrent ? "current" : ""}">
       <div class="split-head">
-        <h3>${escapeHtml(split.name)} ${isCurrent ? '<span class="badge-current">进行中</span>' : '<span class="badge-done">已结束</span>'}</h3>
+        <h3>${escapeHtml(split.name)} ${isCurrent ? '<span class="badge-current">进行中</span>' : isUpcoming ? '<span class="badge-done">未开始</span>' : '<span class="badge-done">已结束</span>'}</h3>
         ${split.champion ? `<span class="split-champ">${teamLogoHtml(champTeam, "logo-sm")} 冠军：<b>${escapeHtml(split.champion)}</b></span>` : ""}
       </div>
+      ${split.groups && split.groups.length ? `
       <div class="groups-row">
         ${split.groups.map((g) => `
           <div class="group-box">
@@ -413,16 +476,13 @@ function renderSplitCard(split) {
             <div class="group-teams">${g.teams.map((t) => `
               <span class="team-chip">${teamLogoHtml(t, "logo-xs")}<span>${escapeHtml(t.display)}</span></span>`).join("")}</div>
           </div>`).join("")}
-      </div>
-      ${split.knightRoad.length ? `
-        <div class="bracket-title">骑士之路</div>
-        ${bracketTreeHtml(split.knightRoad)}` : ""}
-      ${split.playoffs.length ? `
-        <div class="bracket-title">淘汰赛</div>
-        ${bracketTreeHtml(split.playoffs)}` : ""}
-      ${!split.knightRoad.length && !split.playoffs.length && isCurrent ? `
-        <div class="upcoming-hint">🔜 骑士之路与淘汰赛将在组内赛结束后进行</div>` : ""}
-      ${isCurrent && split.standings && split.standings.length ? `
+      </div>` : ""}
+      ${brackets.map((b) => `
+        <div class="bracket-title">${escapeHtml(b.title)}</div>
+        ${bracketTreeHtml(b.rounds)}`).join("")}
+      ${!brackets.length && (isCurrent || isUpcoming) ? `
+        <div class="upcoming-hint">🔜 淘汰类赛程公布后自动生成对阵树</div>` : ""}
+      ${isCurrent && hasStandings ? `
         <div class="bracket-title">当前赛段积分榜（${escapeHtml(split.name)}）</div>
         ${miniStandingsTable(split.standings)}` : ""}
     </div>`;
@@ -526,6 +586,9 @@ function miniStandingsTable(groups) {
 }
 
 // ---------------- 积分榜 ----------------
+// 赛段 key 形如 “第一赛段”（赛季级阶段如 赛季季后赛/资格赛 无分组积分榜，不进筛选）
+const SPLIT_KEY_RE = /^第[一二三四五六七八九十]+赛段$/;
+
 function renderStandings() {
   const groups = state.standings;
   const head = `<div class="view-tabs">
@@ -535,12 +598,13 @@ function renderStandings() {
     </div>
     <div class="toolbar" style="margin-bottom:14px;">
       <div class="filters" id="stageFilters">
-        ${["第三赛段", "第二赛段", "第一赛段", "全部"].map((s) =>
-          `<button class="chip ${state.standingsStage === s ? "active" : ""}" data-stage="${s}">${s === "全部" ? "整个赛季" : s}</button>`).join("")}
+        ${[...(state.season && state.season.splits || []).filter((s) => SPLIT_KEY_RE.test(s.key)).map((s) => s.key).reverse(), "全部"].map((s) =>
+          `<button class="chip ${(state.standingsStage || "全部") === s ? "active" : ""}" data-stage="${escapeHtml(s)}">${s === "全部" ? "整个赛季" : escapeHtml(s)}</button>`).join("")}
       </div>
     </div>`;
-  const stageNote = state.standingsStage === "全部"
-    ? "整个 2026 赛季积分榜"
+  const seasonName = currentSeasonName();
+  const stageNote = (state.standingsStage || "全部") === "全部"
+    ? `${seasonName ? seasonName + " · " : ""}整个赛季积分榜`
     : `${state.standingsStage}积分榜`;
   if (!groups) {
     loadStandings().then(render).catch((e) => {
@@ -800,7 +864,7 @@ function updateStatus() {
     el.textContent = "部分数据源异常，显示可用数据";
   } else {
     el.className = "data-status ok";
-    el.textContent = `数据已更新 · LPL ${state.lpl.matches.length} 场比赛`;
+    el.textContent = `数据已更新 · ${currentSeasonName() || "LPL"} · ${state.lpl.matches.length} 场比赛`;
   }
 }
 
@@ -908,6 +972,10 @@ function bindEvents() {
   const refreshBtn = $("#btnRefresh");
   refreshBtn && refreshBtn.addEventListener("click", () => refreshData(true));
 
+  // 顶栏赛季切换（下拉在静态 header 中，直接绑定）
+  const seasonSel = $("#seasonSelect");
+  seasonSel && seasonSel.addEventListener("change", (e) => { switchSeason(e.target.value); });
+
   // 浏览器前进/后退（二级页面 hash 路由）
   window.addEventListener("hashchange", () => {
     const m = parseHashMatch();
@@ -943,6 +1011,7 @@ setInterval(() => {
 async function init() {
   bindEvents();
   $("#clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  loadSeasons().catch(() => {}); // 赛季列表独立加载，失败不影响赛程
   await loadAll({});
   // 刷新/直达：hash 指向具体比赛时直接打开二级页面
   const m = parseHashMatch();

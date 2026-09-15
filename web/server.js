@@ -109,8 +109,12 @@ const NEAR_WINDOW_AFTER = 2 * 3600 * 1000;  // 开赛前 2 小时内（即将开
 const TTL_LIVE = 60 * 1000;   // 有比赛进行/临近：60 秒刷新
 const TTL_STATIC = 60 * 60 * 1000; // 无比赛：1 小时缓存（静态数据不会变）
 
-function scheduleTtl() {
-  const hit = cacheStore.get("lpl:schedule");
+function scheduleCacheKey(seasonId) {
+  return `lpl:schedule:${seasonId || "latest"}`;
+}
+
+function scheduleTtl(key) {
+  const hit = cacheStore.get(key);
   const matches = (hit && hit.value && hit.value.matches) || [];
   if (!matches.length) return TTL_STATIC;
   const now = Date.now();
@@ -122,9 +126,10 @@ function scheduleTtl() {
   return hasNear ? TTL_LIVE : TTL_STATIC;
 }
 
-async function lplSchedule(force) {
-  const data = await cached("lpl:schedule", scheduleTtl(), async () => {
-    const s = await lpl.getSchedule();
+async function lplSchedule(seasonId, force) {
+  const key = scheduleCacheKey(seasonId);
+  const data = await cached(key, scheduleTtl(key), async () => {
+    const s = await lpl.getSchedule(seasonId ? { seasonId } : {});
     return { seasonId: s.seasonId, matches: decorateLpl(s.matches) };
   }, force);
   return data;
@@ -141,8 +146,9 @@ function decorateSeasonStructure(structure) {
   const decoMatch = (m) => ({ ...m, teamA: decoTeam(m.teamA), teamB: decoTeam(m.teamB) });
   for (const split of structure.splits || []) {
     split.groups = (split.groups || []).map((g) => ({ ...g, teams: g.teams.map(decoTeam) }));
-    split.knightRoad = (split.knightRoad || []).map((r) => ({ ...r, matches: r.matches.map(decoMatch) }));
-    split.playoffs = (split.playoffs || []).map((r) => ({ ...r, matches: r.matches.map(decoMatch) }));
+    for (const bracket of split.brackets || []) {
+      bracket.rounds = (bracket.rounds || []).map((r) => ({ ...r, matches: r.matches.map(decoMatch) }));
+    }
     split.standings = (split.standings || []).map(decorateTeamRow);
   }
   return structure;
@@ -188,11 +194,12 @@ async function handleApi(req, res, url) {
     }
   }
 
-  // LPL 赛程
+  // LPL 赛程（season 省略 = 最新赛季）
   if (pathname === "/api/lpl/schedule") {
     try {
+      const season = url.searchParams.get("season") || "";
       const force = url.searchParams.get("force") === "1";
-      const data = await lplSchedule(force);
+      const data = await lplSchedule(season, force);
       return sendJson(res, 200, { ok: true, ...data });
     } catch (e) {
       return sendError(res, 502, `获取 LPL 赛程失败: ${e.message}`);
@@ -222,8 +229,9 @@ async function handleApi(req, res, url) {
   // LPL 赛季结构（对阵图）
   if (pathname === "/api/lpl/season") {
     try {
-      const structure = await cached("lpl:season", scheduleTtl(), async () => {
-        const s = await lpl.getSeasonStructure();
+      const season = url.searchParams.get("season") || "";
+      const structure = await cached(`lpl:season:${season || "latest"}`, scheduleTtl(scheduleCacheKey(season)), async () => {
+        const s = await lpl.getSeasonStructure(season ? { seasonId: season } : {});
         return decorateSeasonStructure(s);
       }, url.searchParams.get("force") === "1");
       return sendJson(res, 200, { ok: true, ...structure });
@@ -236,10 +244,11 @@ async function handleApi(req, res, url) {
   if (pathname === "/api/standings") {
     const league = url.searchParams.get("league") || "";
     const stage = url.searchParams.get("stage") || "全部";
+    const season = url.searchParams.get("season") || "";
     if (league !== "lpl") return sendError(res, 400, "仅支持 LPL 积分榜");
     try {
-      const data = await cached(`lpl:standings:${stage}`, scheduleTtl(), async () => {
-        const groups = await lpl.getStandingsGroups(stage);
+      const data = await cached(`lpl:standings:${season || "latest"}:${stage}`, scheduleTtl(scheduleCacheKey(season)), async () => {
+        const groups = await lpl.getStandingsGroups(stage, season ? { seasonId: season } : {});
         return {
           league, stage,
           groups: groups.map((g) => ({ name: g.name, rows: g.rows.map(decorateTeamRow) })),
