@@ -9,8 +9,9 @@
 ## ✨ 功能特性
 
 - **LPL 赛程**：三赛段赛程、按日期浏览、比赛状态（未开始 / 进行中 / 已结束）筛选
+- **历史赛季切换**：顶栏下拉切换 2015-2026 任意赛季的赛程 / 对阵图 / 积分榜
 - **按战队筛选**：跨全部日期展示所选战队的全部比赛，可与状态筛选叠加
-- **对阵图**：赛季结构 / 分组 / 骑士之路 / 季后赛树状对阵
+- **对阵图**：赛段结构 / 分组 / 骑士之路 / 季后赛树状对阵，全部由官方 stage 命名自动推导（含赛季季后赛、资格赛等赛季级阶段）
 - **积分榜**：按赛段 + 组别分组，组内按积分排序（积分 = 系列赛胜场 × 3），展示胜率、净胜场、近 5 场与连胜/连败
 - **比赛二级详情页**：逐局选手数据（KDA / 参团率 / 伤害 / 分均 / 经济 / 补刀 / 视野 / 等级 / 装备）
 - **英雄 / 队徽 / 装备图标**：加载失败自动回退文字徽标
@@ -71,7 +72,7 @@ lol-app/
 
 | 类型 | 文件 | 说明 |
 | --- | --- | --- |
-| 正式版 | `lol-app/app/build/outputs/apk/release/LPL赛程-release.apk` | release 签名包（v1.1.1），建议直接安装（约 32 MB） |
+| 正式版 | `lol-app/app/build/outputs/apk/release/LPL赛程-release.apk` | release 签名包（v1.2.0），建议直接安装（约 32 MB） |
 | 调试版 | `lol-app/app/build/outputs/apk/debug/LPL赛程-debug.apk` | debug 包，含调试符号（约 68 MB） |
 
 > 重新出包：在 `lol-app/` 下执行 `.\gradlew assembleRelease`（正式版）或 `.\gradlew assembleDebug`（调试版），产物输出到 `app/build/outputs/apk/`。
@@ -88,9 +89,9 @@ node server.js        # 需 Node ≥ 18，零依赖
 # 浏览器访问 http://127.0.0.1:45231
 ```
 
-- 与 Android 版共用同一套前端（`web/public/`）与数据源封装（`web/lib/`），功能一致（含按战队筛选、对阵图、积分榜、比赛详情等）
+- 与 Android 版共用同一套前端（`web/public/`）与数据源封装（`web/lib/`），功能一致（含历史赛季切换、按战队筛选、对阵图、积分榜、比赛详情等）
 - 数据由本地 Node 请求腾讯官方赛事接口
-- 发布资产：GitHub Release 中的 `LPL-schedule-web-v1.1.1.zip` 即该 Web 版源码包
+- 发布资产：GitHub Release 中的 `LPL-schedule-web-v1.2.0.zip` 即该 Web 版源码包
 
 ---
 
