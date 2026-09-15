@@ -37,6 +37,15 @@ public class MainActivity extends Activity {
     // 每个进程只启动一次 Node（node 单实例，不可重启）
     public static boolean _startedNodeAlready = false;
 
+    // WebView 主文档加载重试：Node 未就绪时 loadUrl 会失败（连接拒绝），
+    // 按递增退避重试；曾加载成功后不再自动重试（Node 单实例不会中途退出）
+    private static final int LOAD_MAX_RETRIES = 6;
+    private static final long LOAD_RETRY_STEP_MS = 2000L;
+    private static final long LOAD_RETRY_MAX_DELAY_MS = 15000L;
+    private boolean pageLoaded = false;
+    private boolean showingFailPage = false;
+    private int loadRetries = 0;
+
     private WebView webView;
     private Handler mainHandler;
 
@@ -59,13 +68,35 @@ public class MainActivity extends Activity {
         // 前端 sticky 顶栏据此在沉浸式布局下避让状态栏（背景铺满、内容不前空）。
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageStarted(android.webkit.WebView view, String url, android.graphics.Bitmap favicon) {
+                // 从失败占位页点"重试"进入新一轮加载时，重置退避计数
+                if (url != null && url.startsWith(SERVER_URL) && showingFailPage) {
+                    showingFailPage = false;
+                    loadRetries = 0;
+                }
+            }
+
+            @Override
             public void onPageFinished(android.webkit.WebView view, String url) {
+                if (url != null && url.startsWith(SERVER_URL)) pageLoaded = true;
                 // 状态栏高度（物理像素）转为 CSS px(=dp)，避免高 DPI 下留白过大
                 int h = getStatusBarHeight();
                 float density = getResources().getDisplayMetrics().density;
                 int hDp = Math.round(h / density);
                 String js = "document.documentElement.style.setProperty('--statusbar-h', '" + hDp + "px')";
                 view.evaluateJavascript(js, null);
+            }
+
+            // API 23+：主文档加载失败（Node 未就绪/启动失败）→ 退避重试；子资源失败忽略
+            @Override
+            public void onReceivedError(android.webkit.WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
+                if (request.isForMainFrame()) scheduleLoadRetry();
+            }
+
+            // API 21-22 只回调旧签名（主资源失败）
+            @Override
+            public void onReceivedError(android.webkit.WebView view, int errorCode, String description, String failingUrl) {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) scheduleLoadRetry();
             }
         });
         webView.setBackgroundColor(0xFF0D1017);
@@ -103,17 +134,50 @@ public class MainActivity extends Activity {
             }).start();
         }
 
-        // 轮询健康接口，Node 就绪后再加载页面
-        // 注：Java 层的 HttpURLConnection 在本机（Android 16）访问 127.0.0.1 监听端口会被系统拦截超时，
-        // 故改为等待固定延时后直接 loadUrl —— WebView 的 Chromium 网络栈与 Java 网络栈不同，
-        // 实际页面加载不依赖该 health 探测。
+        // 首次加载不探测健康接口：Java 层 HttpURLConnection 在本机（Android 16）访问
+        // 127.0.0.1 监听端口会被系统拦截超时；故延时后直接 loadUrl，靠 onReceivedError
+        // 退避重试兜底（WebView 的 Chromium 网络栈与 Java 网络栈不同，不受该拦截影响）。
+        // 首次尝试 3 秒（二次启动 Node 通常 1~2 秒就绪）；冷启动较慢由重试覆盖。
         mainHandler = new Handler(Looper.getMainLooper());
         mainHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
                 webView.loadUrl(SERVER_URL);
             }
-        }, 6000);
+        }, 3000);
+    }
+
+    // 主文档加载失败：先用"启动中"占位盖住 WebView 的错误页，再按 2s/4s/6s…（上限 15s）重试；
+    // 连续 LOAD_MAX_RETRIES 次仍失败则展示带手动重试链接的失败页
+    private void scheduleLoadRetry() {
+        if (pageLoaded || isFinishing()) return;
+        if (loadRetries >= LOAD_MAX_RETRIES) {
+            showLoadFailedNotice();
+            return;
+        }
+        loadRetries++;
+        showStartingNotice();
+        long delay = Math.min(LOAD_RETRY_MAX_DELAY_MS, LOAD_RETRY_STEP_MS * loadRetries);
+        mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!pageLoaded && !isFinishing()) webView.loadUrl(SERVER_URL);
+            }
+        }, delay);
+    }
+
+    private void showLoadFailedNotice() {
+        showingFailPage = true;
+        String html = "<html><head><meta name='viewport' content='width=device-width, initial-scale=1'>" +
+                "<style>body{margin:0;background:#0f1419;color:#9aa7b5;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif}" +
+                "a{color:#6ab0f3;text-decoration:none;font-size:15px}</style>" +
+                "</head><body><div style='text-align:center'>" +
+                "<div style='font-size:40px;margin-bottom:12px'>⚠️</div>" +
+                "<div style='color:#d7e0ea;font-size:16px'>本地服务启动失败</div>" +
+                "<div style='margin-top:8px;font-size:13px'>多次自动重试未成功，请点击重试；<br>若仍失败请完全退出应用后重新打开</div>" +
+                "<div style='margin-top:16px'><a href='" + SERVER_URL + "'>↻ 重试</a></div>" +
+                "</div></body></html>";
+        webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
     }
 
     private void showStartingNotice() {
