@@ -503,10 +503,18 @@ function splitOrder(name) {
   return CN_NUM[m[1]] || 99;
 }
 
+// 占位队名（晋级未定，如 “TBD vs TBD” 的淘汰赛赛程）：
+// 不参与晋级链与分组推导，否则会被当作真实队伍串出错误的轮次/分组
+function isPlaceholderTeam(name) {
+  const n = String(name || "").trim().toUpperCase();
+  return !n || n === "TBD";
+}
+
 // 由组内赛对战关系推导分组（连通分量）
 function deriveGroups(matches) {
   const adj = new Map();
   for (const m of matches) {
+    if (isPlaceholderTeam(m.teamA.name) || isPlaceholderTeam(m.teamB.name)) continue;
     for (const t of [m.teamA.name, m.teamB.name]) if (!adj.has(t)) adj.set(t, new Set());
     adj.get(m.teamA.name).add(m.teamB.name);
     adj.get(m.teamB.name).add(m.teamA.name);
@@ -570,12 +578,18 @@ function findTeam(teamList, name) {
 }
 
 // 把一列比赛重建为树状对阵：按时间排序，每场的轮次 = 双方上一场比赛轮次+1，
-// 并记录父节点（双方各自上一场的比赛 id），前端据此画树状连线
+// 并记录父节点（双方各自上一场的比赛 id），前端据此画树状连线。
+// 双方都为 TBD 的纯占位场次无法进晋级链：按官方轮次标注（week，如 四分之一决赛/
+// 半决赛/决赛）各自成轮，按最早开赛时间排序，堆叠在链上轮次之后。
 function buildBracketRounds(list, { finalIsFinal = true } = {}) {
   const sorted = [...list].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const isPlaceholder = (m) => isPlaceholderTeam(m.teamA.name) && isPlaceholderTeam(m.teamB.name);
+  const real = sorted.filter((m) => !isPlaceholder(m));
+  const placeholders = sorted.filter(isPlaceholder);
+
   const teamLast = new Map(); // 队名 -> 最近一场 node
   const nodes = [];
-  for (const m of sorted) {
+  for (const m of real) {
     const pA = teamLast.get(m.teamA.name) || null;
     const pB = teamLast.get(m.teamB.name) || null;
     const round = 1 + Math.max(pA ? pA.round : 0, pB ? pB.round : 0);
@@ -584,14 +598,28 @@ function buildBracketRounds(list, { finalIsFinal = true } = {}) {
     teamLast.set(m.teamA.name, node);
     teamLast.set(m.teamB.name, node);
   }
+  const chainMax = nodes.reduce((acc, n) => Math.max(acc, n.round), 0);
+
+  if (placeholders.length) {
+    // 按官方轮次标注分组；同一标注为一轮（时间序），无标注则全部并入一轮
+    const byWeek = new Map();
+    for (const m of placeholders) {
+      const key = m.week || "";
+      if (!byWeek.has(key)) byWeek.set(key, []);
+      byWeek.get(key).push(m);
+    }
+    const weeks = [...byWeek.entries()].sort((a, b) => firstTime(a[1]) - firstTime(b[1]));
+    weeks.forEach(([, ms], wi) => {
+      for (const m of ms) nodes.push({ match: m, round: chainMax + 1 + wi, parents: [null, null] });
+    });
+  }
+
   const maxRound = Math.max(0, ...nodes.map((n) => n.round));
   const CN = ["", "一", "二", "三", "四", "五", "六", "七", "八"];
   const rounds = [];
   for (let r = 1; r <= maxRound; r++) {
-    rounds.push({
-      name: r === maxRound && finalIsFinal ? "决赛" : `第${CN[r] || r}轮`,
-      matches: nodes.filter((n) => n.round === r).map((n) => ({ ...n.match, parents: n.parents })),
-    });
+    const ms = nodes.filter((n) => n.round === r).map((n) => ({ ...n.match, parents: n.parents }));
+    if (ms.length) rounds.push({ name: r === maxRound && finalIsFinal ? "决赛" : `第${CN[r] || r}轮`, matches: ms });
   }
   return rounds;
 }
@@ -610,9 +638,10 @@ function buildSection({ key, name, groupMatches, brackets, teams, isSplit, singl
   // 只推导出一个组时（瑞士轮 / 单组赛制），用阶段名作组名
   if (groups.length === 1 && singleGroupName) groups[0].name = singleGroupName;
   if (!groups.length && isSplit && allMatches.length) {
-    // 组内赛尚未开打（无法推导分组）：先按该赛段全部队伍给占位分组
-    const names = [...new Set(allMatches.flatMap((m) => [m.teamA.name, m.teamB.name]))];
-    groups = [{ name: "组内赛", desc: "开赛后按对战关系自动分组", teams: names }];
+    // 组内赛尚未开打（无法推导分组）：先按该赛段全部队伍给占位分组（TBD 除外）
+    const names = [...new Set(allMatches.flatMap((m) => [m.teamA.name, m.teamB.name]))]
+      .filter((n) => !isPlaceholderTeam(n));
+    if (names.length) groups = [{ name: "组内赛", desc: "开赛后按对战关系自动分组", teams: names }];
   }
 
   const builtBrackets = brackets

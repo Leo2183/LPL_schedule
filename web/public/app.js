@@ -215,6 +215,7 @@ async function switchLeague(league) {
   state.lpl.matches = [];
   state.lpl.loaded = false;
   state.lpl.error = null;
+  state.date = new Date();
   didAutoJump = false;
   render();
   toast("正在切换赛事…");
@@ -238,6 +239,7 @@ async function switchSeason(seasonId) {
   state.lpl.matches = [];
   state.lpl.loaded = false;
   state.lpl.error = null;
+  state.date = new Date();
   didAutoJump = false;
   render();
   toast("正在切换赛季…");
@@ -532,7 +534,7 @@ function renderSplitCard(split) {
         <div class="bracket-title">${escapeHtml(b.title)}</div>
         ${bracketTreeHtml(b.rounds)}`).join("")}
       ${!brackets.length && (isCurrent || isUpcoming) ? `
-        <div class="upcoming-hint">🔜 淘汰类赛程公布后自动生成对阵树</div>` : ""}
+        <div class="upcoming-hint">🔜 分组与对阵将在赛程明确后自动生成</div>` : ""}
       ${(isCurrent || !brackets.length) && hasStandings ? `
         <div class="bracket-title">${escapeHtml(split.name)}积分榜</div>
         ${miniStandingsTable(split.standings)}` : ""}

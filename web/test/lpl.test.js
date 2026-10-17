@@ -190,3 +190,41 @@ test("buildBracketRounds：finalIsFinal=false 时末轮不叫决赛", () => {
   assert.equal(rounds.length, 2);
   assert.equal(rounds[1].name, "第二轮");
 });
+
+// ---------------- TBD 占位场次（如 2026 世界赛淘汰赛未开赛） ----------------
+function pm(id, week, time) {
+  return { id, time, week, teamA: { name: "TBD" }, teamB: { name: "TBD" } };
+}
+
+test("buildBracketRounds：全 TBD 占位按官方轮次标注成轮（时间序）", () => {
+  const rounds = buildBracketRounds([
+    pm("f", "决赛", "2026-11-08T00:00:00.000Z"),
+    pm("qf1", "四分之一决赛", "2026-10-25T00:00:00.000Z"),
+    pm("qf2", "四分之一决赛", "2026-10-26T00:00:00.000Z"),
+    pm("sf", "半决赛", "2026-11-01T00:00:00.000Z"),
+  ]);
+  assert.equal(rounds.length, 3);
+  assert.deepEqual(rounds.map((r) => r.matches.length), [2, 1, 1]); // QF2 SF1 F1
+  assert.equal(rounds[2].name, "决赛");
+  assert.deepEqual(rounds[2].matches[0].parents, [null, null]);     // 占位无连线
+});
+
+test("buildBracketRounds：占位轮堆叠在真实晋级链之后", () => {
+  const rounds = buildBracketRounds([
+    bm("r1", "A", "B", "2026-01-01T00:00:00.000Z"),
+    bm("r2", "A", "B", "2026-01-02T00:00:00.000Z"),                 // 链上 2 轮
+    pm("p1", "资格赛", "2026-01-05T00:00:00.000Z"),                 // 占位 → 第 3 轮
+  ]);
+  assert.equal(rounds.length, 3);
+  assert.deepEqual(rounds.map((r) => r.matches.map((m) => m.id)), [["r1"], ["r2"], ["p1"]]);
+});
+
+test("deriveGroups：TBD 占位队不参与分组推导", () => {
+  const groups = deriveGroups([
+    gm("A", "B"), gm("B", "A"),
+    gm("TBD", "TBD"),                       // 纯占位，忽略
+    gm("C", "TBD"),                         // 一侧占位，忽略
+  ]);
+  assert.equal(groups.length, 1);
+  assert.deepEqual([...groups[0].teams].sort(), ["A", "B"]);
+});
